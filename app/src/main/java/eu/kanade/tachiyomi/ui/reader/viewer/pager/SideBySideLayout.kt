@@ -60,13 +60,17 @@ open class SideBySideLayout @JvmOverloads constructor(
             val remainingWidth = (width - fixedWidth).coerceAtLeast(0)
             // Force divide by 2 if we have 1 or 2 flexible children (guarantees 50% split)
             val columns = if (flexibleChildren.size <= 2) 2 else flexibleChildren.size
-            val childWidth = remainingWidth / columns
-            
-            val widthSpec = MeasureSpec.makeMeasureSpec(childWidth, MeasureSpec.EXACTLY)
+            val baseWidth = remainingWidth / columns
+            val remainder = remainingWidth % columns
+
             val heightSpec = MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY)
 
-            for (child in flexibleChildren) {
-                child.measure(widthSpec, heightSpec)
+            for ((idx, child) in flexibleChildren.withIndex()) {
+                val w = baseWidth + if (idx < remainder) 1 else 0
+                child.measure(
+                    MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
+                    heightSpec,
+                )
             }
         } else if (flexibleChildren.isNotEmpty()) {
             // Width is 0 (initial pass), measure with 0

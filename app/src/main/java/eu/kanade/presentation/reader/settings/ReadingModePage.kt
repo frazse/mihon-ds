@@ -141,7 +141,7 @@ private fun ColumnScope.PagerViewerSettings(screenModel: ReaderSettingsScreenMod
     HeadingItem(MR.strings.label_spanning)
 
     CheckboxItem(
-        label = stringResource(MR.strings.book_mode),
+        label = stringResource(MR.strings.side_by_side_view),
         pref = screenModel.preferences.sideBySideMode(),
     )
 
@@ -176,11 +176,11 @@ private fun ColumnScope.PagerViewerSettings(screenModel: ReaderSettingsScreenMod
 
     CheckboxItem(
         label = stringResource(MR.strings.pref_auto_enable_book_mode),
-        pref = screenModel.preferences.autoEnableBookMode(),
+        pref = screenModel.preferences.autoEnableSideBySide(),
     )
     CheckboxItem(
         label = stringResource(MR.strings.pref_auto_disable_book_mode),
-        pref = screenModel.preferences.autoDisableBookMode(),
+        pref = screenModel.preferences.autoDisableSideBySide(),
     )
     CheckboxItem(
         label = stringResource(MR.strings.pref_auto_adjust_hinge_gap),
@@ -188,12 +188,18 @@ private fun ColumnScope.PagerViewerSettings(screenModel: ReaderSettingsScreenMod
     )
     CheckboxItem(
         label = stringResource(MR.strings.pref_auto_disable_on_start),
-        pref = screenModel.preferences.autoDisableBookModeOnSingleScreenStart(),
+        pref = screenModel.preferences.autoDisableSideBySideOnStart(),
     )
     CheckboxItem(
         label = stringResource(MR.strings.pref_center_single_page),
         pref = screenModel.preferences.centerSinglePage(),
     )
+    if (isSideBySideViewEnabled) {
+        CheckboxItem(
+            label = stringResource(MR.strings.pref_side_by_side_page_offset),
+            pref = screenModel.preferences.sideBySidePageOffset(),
+        )
+    }
 }
 
 @Composable

@@ -237,8 +237,10 @@ class ReaderViewModel @JvmOverloads constructor(
                 if (chapterPageIndex >= 0) {
                     // Restore from SavedState
                     currentChapter.requestedPage = chapterPageIndex
+                    currentChapter.requestedPageFromResume = true
                 } else if (!currentChapter.chapter.read) {
                     currentChapter.requestedPage = currentChapter.chapter.last_page_read
+                    currentChapter.requestedPageFromResume = true
                 }
                 chapterId = currentChapter.chapter.id!!
             }
@@ -538,6 +540,7 @@ class ReaderViewModel @JvmOverloads constructor(
             it.copy(currentPage = pageIndex + 1)
         }
         readerChapter.requestedPage = pageIndex
+        readerChapter.requestedPageFromResume = false
         chapterPageIndex = pageIndex
 
         if (!incognitoMode && page.status !is Page.State.Error) {
@@ -686,6 +689,7 @@ class ReaderViewModel @JvmOverloads constructor(
                 // Save current page
                 val currChapter = currChapters.currChapter
                 currChapter.requestedPage = currChapter.chapter.last_page_read
+                currChapter.requestedPageFromResume = true
 
                 mutableState.update {
                     it.copy(
@@ -722,6 +726,7 @@ class ReaderViewModel @JvmOverloads constructor(
                 // Save current page
                 val currChapter = currChapters.currChapter
                 currChapter.requestedPage = currChapter.chapter.last_page_read
+                currChapter.requestedPageFromResume = true
 
                 mutableState.update {
                     it.copy(

@@ -43,18 +43,18 @@ object SettingsSpanningScreen : SearchableSettings {
     @Composable
     private fun getReaderGroup(readerPref: ReaderPreferences): Preference.PreferenceGroup {
         return Preference.PreferenceGroup(
-            title = stringResource(MR.strings.book_mode),
+            title = stringResource(MR.strings.side_by_side_view),
             preferenceItems = persistentListOf(
                 Preference.PreferenceItem.SwitchPreference(
                     preference = readerPref.sideBySideMode(),
-                    title = stringResource(MR.strings.book_mode),
+                    title = stringResource(MR.strings.side_by_side_view),
                 ),
                 Preference.PreferenceItem.SwitchPreference(
-                    preference = readerPref.autoEnableBookMode(),
+                    preference = readerPref.autoEnableSideBySide(),
                     title = stringResource(MR.strings.pref_auto_enable_book_mode),
                 ),
                 Preference.PreferenceItem.SwitchPreference(
-                    preference = readerPref.autoDisableBookMode(),
+                    preference = readerPref.autoDisableSideBySide(),
                     title = stringResource(MR.strings.pref_auto_disable_book_mode),
                 ),
                 Preference.PreferenceItem.SwitchPreference(
@@ -62,7 +62,7 @@ object SettingsSpanningScreen : SearchableSettings {
                     title = stringResource(MR.strings.pref_auto_adjust_hinge_gap),
                 ),
                 Preference.PreferenceItem.SwitchPreference(
-                    preference = readerPref.autoDisableBookModeOnSingleScreenStart(),
+                    preference = readerPref.autoDisableSideBySideOnStart(),
                     title = stringResource(MR.strings.pref_auto_disable_on_start),
                 ),
                 Preference.PreferenceItem.SwitchPreference(

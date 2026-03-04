@@ -33,7 +33,7 @@ class PagerPagePairHolder(
         // Helper for flexible width (0 width -> handled by SideBySideLayout)
         fun flexParams() = ViewGroup.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT)
 
-        if (pair.second == null && gapWidth == 0 && centerSingle) {
+        if (pair.second == null && centerSingle) {
             centerSingleChild = true
             addView(createItemView(pair.first), flexParams())
         } else if (isRtl) {

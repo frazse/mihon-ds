@@ -25,7 +25,7 @@ class BasePreferences(
 
     fun swapPresentationRotation() = preferenceStore.getBoolean(Preference.appStateKey("swap_presentation_rotation"), false)
 
-    fun alwaysShowDashboard() = preferenceStore.getBoolean(Preference.appStateKey("always_show_dashboard"), false)
+    fun alwaysShowDashboard() = preferenceStore.getBoolean(Preference.appStateKey("always_show_dashboard"), true)
 
     fun extensionInstaller() = ExtensionInstallerPreference(context, preferenceStore)
 

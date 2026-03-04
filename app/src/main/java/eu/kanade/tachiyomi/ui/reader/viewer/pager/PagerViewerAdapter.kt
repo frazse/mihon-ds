@@ -45,11 +45,20 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
     /**
      * Helper to group a list of items into pairs consistently.
      */
-    private fun groupIntoPairs(items: List<Any>): List<ReaderItemPair> {
+    private fun groupIntoPairs(items: List<Any>, offsetFirstPage: Boolean = false): List<ReaderItemPair> {
         val pairs = mutableListOf<ReaderItemPair>()
         var i = 0
+        if (offsetFirstPage && items.isNotEmpty() && items[0] !is ChapterTransition) {
+            pairs.add(ReaderItemPair(items[0]))
+            i = 1
+        }
         while (i < items.size) {
             val first = items[i]
+            if (first is ChapterTransition) {
+                pairs.add(ReaderItemPair(first))
+                i += 1
+                continue
+            }
             val second = items.getOrNull(i + 1)
             if (second != null && second !is ChapterTransition) {
                 pairs.add(ReaderItemPair(first, second))
@@ -68,7 +77,6 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
      * has R2L direction.
      */
     fun setChapters(chapters: ViewerChapters, forceTransition: Boolean) {
-        // Update mode tracker
         lastSideBySideMode = viewer.config.sideBySideMode
         
         val newItems = mutableListOf<Any>()
@@ -89,7 +97,7 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
 
         // Add current chapter.
         val currPages = chapters.currChapter.pages
-        if (currPages != null) {
+        if (currPages != null && currPages.isNotEmpty()) {
             val pages = currPages.toMutableList()
 
             val lastPage = pages.last()
@@ -121,17 +129,10 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
 
         chapters.nextChapter?.pages?.let(newItems::addAll)
 
-        // Resets double-page splits, else insert pages get misplaced
-        items.filterIsInstance<InsertPage>().also { items.removeAll(it) }
-
-        if (viewer is R2LPagerViewer) {
-            newItems.reverse()
-        }
-
         if (viewer.config.sideBySideMode) {
             val pairedItems = mutableListOf<Any>()
             
-            // 1. Add Previous Chapter Buffer (Consistently paired)
+            // Previous chapter buffer
             if (chapters.prevChapter != null) {
                 val prevPages = chapters.prevChapter.pages
                 if (prevPages != null) {
@@ -142,23 +143,23 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
                 }
             }
 
-            // 2. Add Previous Transition (Conditional)
+            // Previous transition
             val prevNotLoaded = chapters.prevChapter?.state !is ReaderChapter.State.Loaded
             if (prevHasMissingChapters || forceTransition || prevNotLoaded) {
                 pairedItems.add(ChapterTransition.Prev(chapters.currChapter, chapters.prevChapter))
             }
 
-            // 3. Add Current Chapter Pages grouped in pairs
+            // Current chapter pages paired
             val currPagesList = chapters.currChapter.pages
             if (currPagesList != null) {
                 val pages = currPagesList.toMutableList()
                 preprocessed.keys.sortedDescending().forEach { key ->
                     preprocessed[key]?.let { pages.add(key + 1, it) }
                 }
-                pairedItems.addAll(groupIntoPairs(pages))
+                pairedItems.addAll(groupIntoPairs(pages, offsetFirstPage = viewer.config.sideBySidePageOffset))
             }
 
-            // 4. Add Next Transition (Conditional)
+            // Next transition
             val nextTrans = ChapterTransition.Next(chapters.currChapter, chapters.nextChapter)
             val nextNotLoaded = chapters.nextChapter?.state !is ReaderChapter.State.Loaded
             if (nextHasMissingChapters || forceTransition || nextNotLoaded) {
@@ -166,7 +167,7 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
             }
             nextTransition = nextTrans
 
-            // 5. Add Next Chapter Buffer
+            // Next chapter buffer
             if (chapters.nextChapter != null) {
                 val nextPages = chapters.nextChapter.pages
                 if (nextPages != null) {
@@ -232,7 +233,6 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
             if (position != -1) {
                 return position
             } else {
-                // If it's a ReaderPage, it might be inside a ReaderItemPair
                 if (item is ReaderPage) {
                     val pairPosition = items.indexOfFirst { it is ReaderItemPair && (it.first == item || it.second == item) }
                     if (pairPosition != -1) return pairPosition
@@ -247,11 +247,7 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
         if (currentPage !is ReaderPage) return
 
         if (viewer.config.sideBySideMode) {
-            // If already in side-by-side mode, we just need to add the new page to preprocessed
-            // so it gets picked up on the next natural refresh or chapter load.
             preprocessed[newPage.index] = newPage
-            
-            // Trigger a refresh so the new page is paired correctly
             viewer.activity.runOnUiThread {
                 viewer.refreshAdapter()
             }
@@ -259,6 +255,7 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
         }
 
         val currentIndex = items.indexOf(currentPage)
+        if (currentIndex == -1) return
 
         // Put aside preprocessed pages for next chapter so they don't get removed when changing chapter
         if (currentPage.chapter.chapter.id != currentChapter?.chapter?.id) {

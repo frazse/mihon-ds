@@ -65,7 +65,7 @@ fun ReaderAppBars(
     cropEnabled: Boolean,
     onClickCropBorder: () -> Unit,
     onClickSettings: () -> Unit,
-    dualScreenModeEnabled: Boolean = false,
+    companionPageEnabled: Boolean = false,
     onClickDualScreenMode: (() -> Unit)? = null,
 ) {
     val isRtl = remember(viewer, readingMode) {
@@ -131,7 +131,7 @@ fun ReaderAppBars(
                     cropEnabled = cropEnabled,
                     onClickCropBorder = onClickCropBorder,
                     onClickSettings = onClickSettings,
-                    dualScreenModeEnabled = dualScreenModeEnabled,
+                    companionPageEnabled = companionPageEnabled,
                     onClickDualScreenMode = onClickDualScreenMode,
                 )
             }

@@ -26,7 +26,7 @@ fun ReaderBottomBar(
     cropEnabled: Boolean,
     onClickCropBorder: () -> Unit,
     onClickSettings: () -> Unit,
-    dualScreenModeEnabled: Boolean = false,
+    companionPageEnabled: Boolean = false,
     onClickDualScreenMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -60,7 +60,7 @@ fun ReaderBottomBar(
         if (onClickDualScreenMode != null) {
             IconButton(onClick = onClickDualScreenMode) {
                 Icon(
-                    painter = painterResource(if (dualScreenModeEnabled) R.drawable.ic_book_open_24dp else R.drawable.ic_book_open_24dp),
+                    painter = painterResource(R.drawable.ic_book_open_24dp),
                     contentDescription = stringResource(MR.strings.action_dual_screen_mode),
                 )
             }

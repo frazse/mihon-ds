@@ -15,11 +15,13 @@ import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.withUIContext
+import java.io.BufferedInputStream
 
 class ReaderPagePreviewAdapter(
     private val onPageClick: (ReaderPage) -> Unit
@@ -39,7 +41,7 @@ class ReaderPagePreviewAdapter(
         val oldIndex = pages.indexOf(currentPage)
         currentPage = page
         val newIndex = pages.indexOf(currentPage)
-        
+
         if (oldIndex != -1) notifyItemChanged(oldIndex)
         if (newIndex != -1) notifyItemChanged(newIndex)
     }
@@ -57,12 +59,16 @@ class ReaderPagePreviewAdapter(
 
     override fun getItemCount(): Int = pages.size
 
+    override fun onViewRecycled(holder: PagePreviewHolder) {
+        holder.recycle()
+    }
+
     inner class PagePreviewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val cardView: CardView = itemView.findViewById(R.id.card_view)
         private val thumbnail: ImageView = itemView.findViewById(R.id.page_thumbnail)
         private val pageNumber: TextView = itemView.findViewById(R.id.page_number)
         private var loadJob: Job? = null
-        private val scope = CoroutineScope(Dispatchers.Main)
+        private var scope: CoroutineScope? = null
 
         init {
             itemView.setOnClickListener {
@@ -76,63 +82,69 @@ class ReaderPagePreviewAdapter(
         fun bind(page: ReaderPage, isSelected: Boolean) {
             pageNumber.text = "${page.number}"
 
-            // Highlight selection with foreground drawable
             if (isSelected) {
                 val borderDrawable = ContextCompat.getDrawable(itemView.context, R.drawable.selection_border_foreground)
                 cardView.foreground = borderDrawable
             } else {
                 cardView.foreground = null
             }
-            
-            loadJob?.cancel()
-            thumbnail.setImageDrawable(null) // Reset
 
-            loadJob = scope.launch {
+            recycle()
+            val newScope = CoroutineScope(Dispatchers.Main)
+            scope = newScope
+
+            loadJob = newScope.launch {
                 page.statusFlow.collectLatest { status ->
                     when (status) {
                         Page.State.Ready -> loadThumbnail(page)
                         Page.State.Queue -> {
-                            // Trigger load if visible and in queue
                             launchIO {
                                 page.chapter.pageLoader?.loadPage(page)
                             }
                         }
-                        else -> {
-                            // Show placeholder or loading?
-                            // For now just keep empty or standard icon
-                        }
+                        else -> { }
                     }
                 }
             }
+        }
+
+        fun recycle() {
+            loadJob?.cancel()
+            loadJob = null
+            scope?.cancel()
+            scope = null
+            thumbnail.setImageDrawable(null)
         }
 
         private suspend fun loadThumbnail(page: ReaderPage) {
             val streamFn = page.stream ?: return
             withContext(Dispatchers.IO) {
                 try {
-                    val stream = streamFn()
-                    val bytes = try {
-                        stream.readBytes()
-                    } finally {
-                        stream.close()
-                    }
+                    val stream = BufferedInputStream(streamFn(), 8192)
+                    stream.use {
+                        stream.mark(8 * 1024 * 1024)
 
-                    // Decode bounds first to downsample
-                    val options = BitmapFactory.Options().apply {
-                        inJustDecodeBounds = true
-                    }
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeStream(stream, null, options)
 
-                    // Calculate inSampleSize
-                    options.inJustDecodeBounds = false
-                    options.inSampleSize = calculateInSampleSize(options, 150, 225) // Thumbnail size
+                        // Try reset for streaming decode; fall back to re-open for archive/epub
+                        val bitmap = try {
+                            stream.reset()
+                            options.inJustDecodeBounds = false
+                            options.inSampleSize = calculateInSampleSize(options, 150, 225)
+                            BitmapFactory.decodeStream(stream, null, options)
+                        } catch (_: Exception) {
+                            options.inJustDecodeBounds = false
+                            options.inSampleSize = calculateInSampleSize(options, 150, 225)
+                            streamFn().use { freshStream ->
+                                BitmapFactory.decodeStream(freshStream, null, options)
+                            }
+                        }
 
-                    // Decode actual bitmap
-                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-
-                    if (bitmap != null) {
-                        withUIContext {
-                            thumbnail.setImageBitmap(bitmap)
+                        if (bitmap != null) {
+                            withUIContext {
+                                thumbnail.setImageBitmap(bitmap)
+                            }
                         }
                     }
                 } catch (e: Exception) {

@@ -36,30 +36,19 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
-import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
-import eu.kanade.tachiyomi.source.model.Page
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 import androidx.recyclerview.widget.LinearLayoutManager
-import okio.Buffer
-import tachiyomi.core.common.util.lang.launchIO
-import tachiyomi.core.common.util.lang.withIOContext
-import tachiyomi.core.common.util.system.logcat
 import mihon.core.dualscreen.DualScreenState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
-/**
- * Dashboard mode enum for the dual-screen reader controls.
- */
 sealed class DashboardMode {
-    /** Normal mode with page arrows or touchpad indicator */
     object NORMAL : DashboardMode()
-
-    /** Scrubber mode with horizontal page thumbnail strip */
     object SCRUBBER : DashboardMode()
 
-    /** Get the next mode in the cycle (Dual-screen mode is toggled separately) */
     fun next(): DashboardMode = when (this) {
         NORMAL -> SCRUBBER
         SCRUBBER -> NORMAL
@@ -99,9 +88,11 @@ class ReaderControlsPresentation(
         savedStateRegistryController.performRestore(savedInstanceState)
         lifecycleRegistry.currentState = Lifecycle.State.CREATED
 
-        window!!.decorView.setViewTreeLifecycleOwner(this)
-        window!!.decorView.setViewTreeSavedStateRegistryOwner(this)
-        window!!.decorView.setViewTreeViewModelStoreOwner(this)
+        window?.decorView?.let { decorView ->
+            decorView.setViewTreeLifecycleOwner(this)
+            decorView.setViewTreeSavedStateRegistryOwner(this)
+            decorView.setViewTreeViewModelStoreOwner(this)
+        }
 
         lifecycleScope.launch {
             DualScreenState.rotationEvents.collect {
@@ -242,7 +233,7 @@ class ReaderControlsPresentation(
         btnDisplayMode.setOnClickListener { activity.viewModel.openReadingModeSelectDialog() }
 
         btnBookMode.setOnClickListener {
-            activity.setBookMode(true)
+            activity.setCompanionPage(!activity.isCompanionPageEnabled())
         }
 
         btnViewMode.setOnClickListener {
@@ -261,7 +252,17 @@ class ReaderControlsPresentation(
         })
 
         lifecycleScope.launch {
-            activity.viewModel.state.collect { state ->
+            @OptIn(kotlinx.coroutines.FlowPreview::class)
+            activity.viewModel.state
+                .sample(100L)
+                .distinctUntilChanged { old, new ->
+                    old.currentPage == new.currentPage &&
+                    old.totalPages == new.totalPages &&
+                    old.currentChapter?.chapter?.id == new.currentChapter?.chapter?.id &&
+                    old.viewerChapters?.prevChapter == new.viewerChapters?.prevChapter &&
+                    old.viewerChapters?.nextChapter == new.viewerChapters?.nextChapter
+                }
+                .collect { state ->
                 val currentPage = state.currentPage
                 val totalPages = state.totalPages
 
@@ -309,24 +310,18 @@ class ReaderControlsPresentation(
         val isVertical = readingMode.direction == ReadingMode.Direction.Vertical
         val isWebtoon = readingMode == ReadingMode.WEBTOON || readingMode == ReadingMode.CONTINUOUS_VERTICAL
 
-        // Hide navigation buttons in webtoon modes (scroll-based, not page-based)
         val buttonVisibility = if (isWebtoon) View.GONE else View.VISIBLE
         btnPrev.visibility = buttonVisibility
         btnNext.visibility = buttonVisibility
-
-        // Skip constraint updates for hidden buttons
         if (isWebtoon) return
 
         val constraintSet = androidx.constraintlayout.widget.ConstraintSet()
         constraintSet.clone(middleContainer)
-        
-        // Clear all existing constraints
         constraintSet.clear(btnPrev.id)
         constraintSet.clear(btnNext.id)
         constraintSet.setRotation(btnPrev.id, 0f)
         constraintSet.setRotation(btnNext.id, 0f)
 
-        // Ensure arrows are solid white
         val whiteList = ColorStateList.valueOf(Color.WHITE)
         btnPrev.imageTintList = whiteList
         btnNext.imageTintList = whiteList
@@ -334,55 +329,37 @@ class ReaderControlsPresentation(
         if (isVertical) {
             btnPrev.setImageResource(R.drawable.ic_chevron_up_24dp)
             btnNext.setImageResource(R.drawable.ic_chevron_down_24dp)
-            
-            // Vertical Chain Manual Setup (50/50 split)
-            // btnPrev TOP -> PARENT TOP
-            constraintSet.connect(btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.TOP, androidx.constraintlayout.widget.ConstraintSet.PARENT_ID, androidx.constraintlayout.widget.ConstraintSet.TOP)
-            // btnPrev BOTTOM -> btnNext TOP
-            constraintSet.connect(btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.BOTTOM, btnNext.id, androidx.constraintlayout.widget.ConstraintSet.TOP)
-            // btnNext TOP -> btnPrev BOTTOM
-            constraintSet.connect(btnNext.id, androidx.constraintlayout.widget.ConstraintSet.TOP, btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.BOTTOM)
-            // btnNext BOTTOM -> PARENT BOTTOM
-            constraintSet.connect(btnNext.id, androidx.constraintlayout.widget.ConstraintSet.BOTTOM, androidx.constraintlayout.widget.ConstraintSet.PARENT_ID, androidx.constraintlayout.widget.ConstraintSet.BOTTOM)
 
-            // Horizontal Centering (Explicit START/END for RTL safety)
+            // Vertical chain: 50/50 split
+            constraintSet.connect(btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.TOP, androidx.constraintlayout.widget.ConstraintSet.PARENT_ID, androidx.constraintlayout.widget.ConstraintSet.TOP)
+            constraintSet.connect(btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.BOTTOM, btnNext.id, androidx.constraintlayout.widget.ConstraintSet.TOP)
+            constraintSet.connect(btnNext.id, androidx.constraintlayout.widget.ConstraintSet.TOP, btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.BOTTOM)
+            constraintSet.connect(btnNext.id, androidx.constraintlayout.widget.ConstraintSet.BOTTOM, androidx.constraintlayout.widget.ConstraintSet.PARENT_ID, androidx.constraintlayout.widget.ConstraintSet.BOTTOM)
             constraintSet.connect(btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.START, androidx.constraintlayout.widget.ConstraintSet.PARENT_ID, androidx.constraintlayout.widget.ConstraintSet.START)
             constraintSet.connect(btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.END, androidx.constraintlayout.widget.ConstraintSet.PARENT_ID, androidx.constraintlayout.widget.ConstraintSet.END)
             constraintSet.connect(btnNext.id, androidx.constraintlayout.widget.ConstraintSet.START, androidx.constraintlayout.widget.ConstraintSet.PARENT_ID, androidx.constraintlayout.widget.ConstraintSet.START)
             constraintSet.connect(btnNext.id, androidx.constraintlayout.widget.ConstraintSet.END, androidx.constraintlayout.widget.ConstraintSet.PARENT_ID, androidx.constraintlayout.widget.ConstraintSet.END)
-
-            // Weights and Sizes
             constraintSet.constrainWidth(btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.MATCH_CONSTRAINT)
             constraintSet.constrainHeight(btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.MATCH_CONSTRAINT)
             constraintSet.constrainWidth(btnNext.id, androidx.constraintlayout.widget.ConstraintSet.MATCH_CONSTRAINT)
             constraintSet.constrainHeight(btnNext.id, androidx.constraintlayout.widget.ConstraintSet.MATCH_CONSTRAINT)
-            
             constraintSet.setVerticalWeight(btnPrev.id, 1f)
             constraintSet.setVerticalWeight(btnNext.id, 1f)
         } else {
             btnPrev.setImageResource(R.drawable.ic_chevron_left_24dp)
             btnNext.setImageResource(R.drawable.ic_chevron_right_24dp)
 
-            // Horizontal Chain Manual Setup (50/50 split)
-            // btnPrev START -> PARENT START
+            // Horizontal chain: 50/50 split
             constraintSet.connect(btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.START, androidx.constraintlayout.widget.ConstraintSet.PARENT_ID, androidx.constraintlayout.widget.ConstraintSet.START)
-            // btnPrev END -> btnNext START
             constraintSet.connect(btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.END, btnNext.id, androidx.constraintlayout.widget.ConstraintSet.START)
-            // btnNext START -> btnPrev END
             constraintSet.connect(btnNext.id, androidx.constraintlayout.widget.ConstraintSet.START, btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.END)
-            // btnNext END -> PARENT END
             constraintSet.connect(btnNext.id, androidx.constraintlayout.widget.ConstraintSet.END, androidx.constraintlayout.widget.ConstraintSet.PARENT_ID, androidx.constraintlayout.widget.ConstraintSet.END)
-
-            // Vertical Centering
             constraintSet.centerVertically(btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.PARENT_ID)
             constraintSet.centerVertically(btnNext.id, androidx.constraintlayout.widget.ConstraintSet.PARENT_ID)
-
-            // Weights and Sizes
             constraintSet.constrainWidth(btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.MATCH_CONSTRAINT)
             constraintSet.constrainHeight(btnPrev.id, androidx.constraintlayout.widget.ConstraintSet.MATCH_CONSTRAINT)
             constraintSet.constrainWidth(btnNext.id, androidx.constraintlayout.widget.ConstraintSet.MATCH_CONSTRAINT)
             constraintSet.constrainHeight(btnNext.id, androidx.constraintlayout.widget.ConstraintSet.MATCH_CONSTRAINT)
-
             constraintSet.setHorizontalWeight(btnPrev.id, 1f)
             constraintSet.setHorizontalWeight(btnNext.id, 1f)
         }

@@ -51,6 +51,9 @@ class PagerConfig(
     var sideBySideMode = false
         private set
 
+    var sideBySidePageOffset = false
+        private set
+
     init {
         readerPreferences.readerTheme()
             .register(
@@ -121,6 +124,12 @@ class PagerConfig(
                         dualPageSplitChangedListener?.invoke(newSplit)
                     }
                 },
+                { imagePropertyChangedListener?.invoke() },
+            )
+
+        readerPreferences.sideBySidePageOffset()
+            .register(
+                { sideBySidePageOffset = it },
                 { imagePropertyChangedListener?.invoke() },
             )
 

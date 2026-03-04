@@ -74,6 +74,11 @@ class WebtoonAdapter(val viewer: WebtoonViewer) : RecyclerView.Adapter<RecyclerV
         result.dispatchUpdatesTo(this)
     }
 
+    // Used by secondary adapter to sync with primary
+    fun setItems(newItems: List<Any>) {
+        updateItems(newItems)
+    }
+
     fun refresh() {
         readerThemedContext = viewer.activity.createReaderThemeContext()
     }

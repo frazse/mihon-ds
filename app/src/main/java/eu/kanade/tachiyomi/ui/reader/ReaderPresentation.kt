@@ -65,6 +65,9 @@ import eu.kanade.tachiyomi.ui.reader.viewer.webtoon.WebtoonAdapter
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.util.view.setComposeContent
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import okio.Buffer
 import mihon.core.dualscreen.DualScreenState
@@ -78,6 +81,11 @@ private class TouchInterceptFrameLayout(context: android.content.Context) : Fram
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         externalGestureDetector?.onTouchEvent(ev)
         return super.dispatchTouchEvent(ev)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        // Consume all events so gesture detector gets full touch sequences
+        return true
     }
 }
 
@@ -121,9 +129,11 @@ class ReaderPresentation(
         savedStateRegistryController.performRestore(savedInstanceState)
         lifecycleRegistry.currentState = Lifecycle.State.CREATED
 
-        window!!.decorView.setViewTreeLifecycleOwner(this)
-        window!!.decorView.setViewTreeSavedStateRegistryOwner(this)
-        window!!.decorView.setViewTreeViewModelStoreOwner(this)
+        window?.decorView?.let { decorView ->
+            decorView.setViewTreeLifecycleOwner(this)
+            decorView.setViewTreeSavedStateRegistryOwner(this)
+            decorView.setViewTreeViewModelStoreOwner(this)
+        }
 
         setupGestureDetector()
 
@@ -172,8 +182,18 @@ class ReaderPresentation(
         val readingMode = ReadingMode.fromPreference(activity.viewModel.getMangaReadingMode(resolveDefault = true))
         val isRtl = readingMode == ReadingMode.RIGHT_TO_LEFT
 
-        val secondaryPageNum = getSecondaryPageNumber(state.currentPage)
-        val secondaryPage = state.currentChapter?.pages?.getOrNull(secondaryPageNum - 1)
+        val currentPage by activity.viewModel.state
+            .map { it.currentPage }
+            .distinctUntilChanged()
+            .collectAsState(initial = state.currentPage)
+
+        val currentChapterPages by activity.viewModel.state
+            .map { it.currentChapter?.pages }
+            .distinctUntilChanged()
+            .collectAsState(initial = state.currentChapter?.pages)
+
+        val secondaryPageNum = getSecondaryPageNumber(currentPage)
+        val secondaryPage = currentChapterPages?.getOrNull(secondaryPageNum - 1)
 
         val menuState = remember { mutableStateOf(false) }
         localMenuVisibleState = menuState
@@ -191,32 +211,38 @@ class ReaderPresentation(
                 AnimatedContent(
                     targetState = secondaryPage,
                     transitionSpec = {
-                        val direction = if (readingMode.direction == ReadingMode.Direction.Vertical) {
-                            if (targetState != null && initialState != null && targetState!!.index > initialState!!.index) {
-                                AnimatedContentTransitionScope.SlideDirection.Up
+                        val targetIdx = targetState?.index
+                        val initialIdx = initialState?.index
+                        if (targetIdx != null && initialIdx != null) {
+                            val direction = if (readingMode.direction == ReadingMode.Direction.Vertical) {
+                                if (targetIdx > initialIdx) {
+                                    AnimatedContentTransitionScope.SlideDirection.Up
+                                } else {
+                                    AnimatedContentTransitionScope.SlideDirection.Down
+                                }
+                            } else if (isRtl) {
+                                if (targetIdx > initialIdx) {
+                                    AnimatedContentTransitionScope.SlideDirection.Right
+                                } else {
+                                    AnimatedContentTransitionScope.SlideDirection.Left
+                                }
                             } else {
-                                AnimatedContentTransitionScope.SlideDirection.Down
+                                if (targetIdx > initialIdx) {
+                                    AnimatedContentTransitionScope.SlideDirection.Left
+                                } else {
+                                    AnimatedContentTransitionScope.SlideDirection.Right
+                                }
                             }
-                        } else if (isRtl) {
-                            if (targetState != null && initialState != null && targetState!!.index > initialState!!.index) {
-                                AnimatedContentTransitionScope.SlideDirection.Right
-                            } else {
-                                AnimatedContentTransitionScope.SlideDirection.Left
-                            }
-                        } else {
-                            if (targetState != null && initialState != null && targetState!!.index > initialState!!.index) {
-                                AnimatedContentTransitionScope.SlideDirection.Left
-                            } else {
-                                AnimatedContentTransitionScope.SlideDirection.Right
-                            }
-                        }
 
-                        if (readingMode.direction == ReadingMode.Direction.Vertical) {
-                            (slideIntoContainer(direction, animationSpec = tween(300)) + fadeIn(tween(300)))
-                                .togetherWith(slideOutOfContainer(direction, animationSpec = tween(300)) + fadeOut(tween(300)))
+                            if (readingMode.direction == ReadingMode.Direction.Vertical) {
+                                (slideIntoContainer(direction, animationSpec = tween(300)) + fadeIn(tween(300)))
+                                    .togetherWith(slideOutOfContainer(direction, animationSpec = tween(300)) + fadeOut(tween(300)))
+                            } else {
+                                (slideInHorizontally(animationSpec = tween(300)) { if (direction == AnimatedContentTransitionScope.SlideDirection.Left) it else -it } + fadeIn(tween(300)))
+                                    .togetherWith(slideOutHorizontally(animationSpec = tween(300)) { if (direction == AnimatedContentTransitionScope.SlideDirection.Left) -it else it } + fadeOut(tween(300)))
+                            }
                         } else {
-                            (slideInHorizontally(animationSpec = tween(300)) { if (direction == AnimatedContentTransitionScope.SlideDirection.Left) it else -it } + fadeIn(tween(300)))
-                                .togetherWith(slideOutHorizontally(animationSpec = tween(300)) { if (direction == AnimatedContentTransitionScope.SlideDirection.Left) -it else it } + fadeOut(tween(300)))
+                            fadeIn(tween(300)) togetherWith fadeOut(tween(300))
                         }
                     },
                     label = "PageTransition"
@@ -281,8 +307,8 @@ class ReaderPresentation(
                     cropEnabled = false,
                     onClickCropBorder = { },
                     onClickSettings = { activity.viewModel.openSettingsDialog() },
-                    dualScreenModeEnabled = activity.isBookModeEnabled(),
-                    onClickDualScreenMode = { activity.setBookMode(!activity.isBookModeEnabled()) },
+                    companionPageEnabled = activity.isCompanionPageEnabled(),
+                    onClickDualScreenMode = { activity.setCompanionPage(!activity.isCompanionPageEnabled()) },
                 )
             }
         }
@@ -299,39 +325,40 @@ class ReaderPresentation(
     ) {
         val context = LocalContext.current
         val secondaryRecycler = remember { WebtoonRecyclerView(context) }
+        val secondaryAdapter = remember { WebtoonAdapter(primaryViewer) }
         val isSyncing = remember { mutableStateOf(false) }
-        
-        // Synchronize scrolling between the primary and secondary screens to create a continuous reading experience
+
         DisposableEffect(primaryViewer.recycler) {
-            
+            var syncPending = false
+
             fun syncSecondaryPosition() {
                 if (isSyncing.value) return
                 isSyncing.value = true
                 try {
                     val primaryWidth = primaryViewer.recycler.width.toFloat()
                     val secondaryWidth = secondaryRecycler.width.toFloat()
-                    
+
                     if (primaryWidth > 0 && secondaryWidth > 0) {
                         val ratio = secondaryWidth / primaryWidth
-                        val primaryLayout = primaryViewer.recycler.layoutManager as LinearLayoutManager
-                        val secondaryLayout = secondaryRecycler.layoutManager as LinearLayoutManager
-                        
+                        val primaryLayout = primaryViewer.recycler.layoutManager as? LinearLayoutManager ?: return
+                        val secondaryLayout = secondaryRecycler.layoutManager as? LinearLayoutManager ?: return
+
                         val firstPos = primaryLayout.findFirstVisibleItemPosition()
                         val firstView = primaryLayout.findViewByPosition(firstPos)
-                        
+
                         if (firstView != null && firstPos != RecyclerView.NO_POSITION) {
                             val primaryOffset = firstView.top
                             val primaryHeight = primaryViewer.recycler.height
-                            
+
                             val targetOffset = (primaryOffset - primaryHeight) * ratio
-                            
+
                             val secFirstPos = secondaryLayout.findFirstVisibleItemPosition()
                             val secFirstView = secondaryLayout.findViewByPosition(secFirstPos)
-                            
+
                             if (secFirstPos == firstPos && secFirstView != null) {
                                 val currentOffset = secFirstView.top.toFloat()
                                 val diff = targetOffset - currentOffset
-                                
+
                                 if (kotlin.math.abs(diff) > 1f) {
                                     secondaryRecycler.scrollBy(0, -diff.toInt())
                                 }
@@ -347,11 +374,17 @@ class ReaderPresentation(
 
             val scrollListener = object : RecyclerView.OnScrollListener() {
                 override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                    syncSecondaryPosition()
+                    if (!syncPending) {
+                        syncPending = true
+                        secondaryRecycler.post {
+                            syncSecondaryPosition()
+                            syncPending = false
+                        }
+                    }
                 }
             }
             primaryViewer.recycler.addOnScrollListener(scrollListener)
-            
+
             val layoutListener = object : android.view.View.OnLayoutChangeListener {
                 override fun onLayoutChange(
                     v: android.view.View?,
@@ -362,23 +395,18 @@ class ReaderPresentation(
                 }
             }
             secondaryRecycler.addOnLayoutChangeListener(layoutListener)
-            
+
             val dataObserver = object : RecyclerView.AdapterDataObserver() {
-                override fun onChanged() {
+                private fun syncItems() {
+                    val primaryItems = primaryViewer.adapter.items
+                    secondaryAdapter.setItems(primaryItems)
                     syncSecondaryPosition()
                 }
-                override fun onItemRangeChanged(positionStart: Int, itemCount: Int) {
-                    syncSecondaryPosition()
-                }
-                override fun onItemRangeInserted(positionStart: Int, itemCount: Int) {
-                    syncSecondaryPosition()
-                }
-                override fun onItemRangeMoved(fromPosition: Int, toPosition: Int, itemCount: Int) {
-                    syncSecondaryPosition()
-                }
-                override fun onItemRangeRemoved(positionStart: Int, itemCount: Int) {
-                    syncSecondaryPosition()
-                }
+                override fun onChanged() = syncItems()
+                override fun onItemRangeChanged(positionStart: Int, itemCount: Int) = syncItems()
+                override fun onItemRangeInserted(positionStart: Int, itemCount: Int) = syncItems()
+                override fun onItemRangeMoved(fromPosition: Int, toPosition: Int, itemCount: Int) = syncItems()
+                override fun onItemRangeRemoved(positionStart: Int, itemCount: Int) = syncItems()
             }
             primaryViewer.adapter.registerAdapterDataObserver(dataObserver)
 
@@ -392,9 +420,10 @@ class ReaderPresentation(
         AndroidView(
             factory = { secondaryRecycler },
             update = { recycler ->
-                if (recycler.adapter != primaryViewer.adapter) {
-                    recycler.adapter = primaryViewer.adapter
+                if (recycler.adapter == null) {
+                    recycler.adapter = secondaryAdapter
                     recycler.layoutManager = WebtoonLayoutManager(context, context.resources.displayMetrics.heightPixels)
+                    secondaryAdapter.setItems(primaryViewer.adapter.items)
                 }
             },
             modifier = Modifier.fillMaxSize()
@@ -418,6 +447,7 @@ class ReaderPresentation(
                     val bufferedSource = withIOContext {
                         stream().use { Buffer().readFrom(it) }
                     }
+                    if (!view.isAttachedToWindow) return@launch
                     val isAnimated = false
                     view.setImage(bufferedSource, isAnimated, config)
                 } catch (e: Exception) {
@@ -425,20 +455,15 @@ class ReaderPresentation(
                 }
             }
         } else if (status is Page.State.Queue || status is Page.State.LoadPage) {
-            // Page not ready, trigger load
             val loader = page.chapter.pageLoader
             if (loader != null) {
                 launchIO {
                     loader.loadPage(page)
                 }
             }
-            // Observe page status for when it's ready
             lifecycleScope.launch {
-                page.statusFlow.collect { state ->
-                    if (state is Page.State.Ready) {
-                        loadPageIntoView(view, page)
-                    }
-                }
+                page.statusFlow.first { it is Page.State.Ready }
+                loadPageIntoView(view, page)
             }
         }
     }
@@ -451,7 +476,6 @@ class ReaderPresentation(
             }
 
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                // Handle tap at container level
                 handleSecondaryScreenTap()
                 return true
             }
@@ -476,43 +500,29 @@ class ReaderPresentation(
                 velocityX: Float,
                 velocityY: Float,
             ): Boolean {
-                // Detect swipe direction and navigate accordingly
                 val readingMode = ReadingMode.fromPreference(activity.viewModel.getMangaReadingMode(resolveDefault = true))
-                
-                // Handle vertical swipes
+
                 if (readingMode.direction == ReadingMode.Direction.Vertical) {
-                    // For Webtoon/Continuous, fling means kinetic scroll
                     if (readingMode.type == ReadingMode.ViewerType.Webtoon) {
                          activity.handleExternalFling(velocityY)
                          return true
                     }
 
-                    // For Vertical Pager, fling means page turn
                     val minVelocity = 500
                     if (kotlin.math.abs(velocityY) > kotlin.math.abs(velocityX) &&
                         kotlin.math.abs(velocityY) > minVelocity) {
-                        if (velocityY > 0) {
-                            // Swipe down - previous page
-                            activity.loadPreviousPage()
-                        } else {
-                            // Swipe up - next page
-                            activity.loadNextPage()
-                        }
+                        if (velocityY > 0) activity.loadPreviousPage() else activity.loadNextPage()
                         return true
                     }
                 }
 
-                // Handle horizontal swipes for horizontal modes
                 val minVelocity = 500
                 if (kotlin.math.abs(velocityX) > kotlin.math.abs(velocityY) &&
                     kotlin.math.abs(velocityX) > minVelocity) {
-                    
                     val isRtl = readingMode == ReadingMode.RIGHT_TO_LEFT
                     if (velocityX > 0) {
-                        // Swipe right
                         if (isRtl) activity.loadNextPage() else activity.loadPreviousPage()
                     } else {
-                        // Swipe left
                         if (isRtl) activity.loadPreviousPage() else activity.loadNextPage()
                     }
                     return true
@@ -523,47 +533,23 @@ class ReaderPresentation(
     }
 
     private fun handleSecondaryScreenTap() {
-        // Get current state
         val currentLocalMenu = localMenuVisible
         val primaryMenuVisible = activity.viewModel.state.value.menuVisible
 
         if (currentLocalMenu) {
-            // Hide local menu
             localMenuVisible = false
         } else {
-            // Show local menu and hide primary menu (shared menu behavior)
             localMenuVisible = true
-            if (primaryMenuVisible) {
-                activity.hideMenu()
-            }
+            if (primaryMenuVisible) activity.hideMenu()
         }
     }
 
-    /**
-     * Calculates which page should be shown on the secondary screen based on reading direction.
-     *
-     * For R2L (manga): Secondary shows N-1 (page to the right)
-     * For L2R (comics): Secondary shows N+1 (page to the left)
-     *
-     * @param currentPage The current page on the primary screen (1-based)
-     * @return The page number that should be shown on the secondary screen (1-based)
-     */
+    // R2L: companion is N-1 (right side), L2R: companion is N+1 (left side)
     private fun getSecondaryPageNumber(currentPage: Int): Int {
         val readingMode = ReadingMode.fromPreference(activity.viewModel.getMangaReadingMode(resolveDefault = true))
-        val isRtl = readingMode == ReadingMode.RIGHT_TO_LEFT
-
-        return if (isRtl) {
-            // R2L: secondary shows previous page (to the right)
-            currentPage - 1
-        } else {
-            // L2R: secondary shows next page (to the left)
-            currentPage + 1
-        }
+        return if (readingMode == ReadingMode.RIGHT_TO_LEFT) currentPage - 1 else currentPage + 1
     }
 
-    /**
-     * Sets up rotation of the presentation display to match the activity display.
-     */
     fun setupRotation() {
         val activityRotation = activity.windowManager.defaultDisplay.rotation
         val presentationRotation = display.rotation
@@ -610,30 +596,18 @@ class ReaderPresentation(
         }
     }
 
-    /**
-     * Toggles the menu visibility on the secondary screen.
-     */
     fun toggleMenu() {
         activity.toggleMenu()
     }
 
-    /**
-     * Shows the menu on the secondary screen.
-     */
     fun showMenu() {
         activity.showMenu()
     }
 
-    /**
-     * Hides the menu on the secondary screen.
-     */
     fun hideMenu() {
         activity.hideMenu()
     }
 
-    /**
-     * Hides the local menu on this presentation.
-     */
     fun hideLocalMenu() {
         localMenuVisible = false
     }
