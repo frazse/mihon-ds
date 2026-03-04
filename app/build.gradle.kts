@@ -27,7 +27,7 @@ android {
         applicationId = "app.mihon.ds"
 
         versionCode = 17
-        versionName = "0.1.1"
+        versionName = "0.1.2"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
@@ -166,6 +166,7 @@ kotlin {
             "-opt-in=kotlinx.coroutines.FlowPreview",
             "-opt-in=kotlinx.coroutines.InternalCoroutinesApi",
             "-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
+            "-Xannotation-default-target=param-property",
         )
     }
 }
