@@ -48,6 +48,12 @@ class PagerConfig(
     var landscapeZoom = false
         private set
 
+    var sideBySideMode = false
+        private set
+
+    var sideBySidePageOffset = false
+        private set
+
     init {
         readerPreferences.readerTheme()
             .register(
@@ -85,10 +91,10 @@ class PagerConfig(
 
         readerPreferences.dualPageSplitPaged()
             .register(
-                { dualPageSplit = it },
+                { dualPageSplit = sideBySideMode || it },
                 {
                     imagePropertyChangedListener?.invoke()
-                    dualPageSplitChangedListener?.invoke(it)
+                    dualPageSplitChangedListener?.invoke(dualPageSplit)
                 },
             )
 
@@ -104,6 +110,32 @@ class PagerConfig(
         readerPreferences.dualPageRotateToFitInvert()
             .register(
                 { dualPageRotateToFitInvert = it },
+                { imagePropertyChangedListener?.invoke() },
+            )
+
+        readerPreferences.sideBySideMode()
+            .register(
+                { 
+                    sideBySideMode = it 
+                    // Force split on if Side-by-Side is enabled
+                    val newSplit = it || readerPreferences.dualPageSplitPaged().get()
+                    if (dualPageSplit != newSplit) {
+                        dualPageSplit = newSplit
+                        dualPageSplitChangedListener?.invoke(newSplit)
+                    }
+                },
+                { imagePropertyChangedListener?.invoke() },
+            )
+
+        readerPreferences.sideBySidePageOffset()
+            .register(
+                { sideBySidePageOffset = it },
+                { imagePropertyChangedListener?.invoke() },
+            )
+
+        readerPreferences.manualHingeGap()
+            .register(
+                { },
                 { imagePropertyChangedListener?.invoke() },
             )
     }

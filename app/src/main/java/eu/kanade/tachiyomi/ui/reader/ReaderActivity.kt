@@ -84,7 +84,13 @@ import eu.kanade.tachiyomi.util.system.openInBrowser
 import eu.kanade.tachiyomi.util.system.toShareIntent
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.tachiyomi.util.view.setComposeContent
+import mihon.core.dualscreen.DualScreenState
+import mihon.core.dualscreen.utils.FoldableUtils
+import androidx.window.layout.WindowLayoutInfo
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import tachiyomi.core.common.util.system.logcat
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filterNotNull
@@ -113,7 +119,7 @@ class ReaderActivity : BaseActivity() {
             return Intent(context, ReaderActivity::class.java).apply {
                 putExtra("manga", mangaId)
                 putExtra("chapter", chapterId)
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
         }
     }
@@ -141,15 +147,29 @@ class ReaderActivity : BaseActivity() {
     private var controlsPresentation: ReaderControlsPresentation? = null
     private var readerPresentation: ReaderPresentation? = null
 
-    // Book mode state
-    private var bookModeEnabled = false
+    // Dual-screen state
+    private var companionPageEnabled = false
+    private var isDeviceFoldable = false
+    private var foldableStartupSettled = false
+    
+    // Hinge gap state (ephemeral, not persisted to disk on every rotation)
+    private val _activeHingeGap = kotlinx.coroutines.flow.MutableStateFlow(0)
 
-    fun isBookModeEnabled(): Boolean = bookModeEnabled
+    fun isCompanionPageEnabled(): Boolean = companionPageEnabled
 
-    fun setBookMode(enabled: Boolean) {
-        bookModeEnabled = enabled
-        readerPreferences.bookModeEnabled().set(enabled)
-        // Recreate presentation when toggling book mode
+    // True when secondary display is showing the companion page (pager advances by 2)
+    fun isCompanionPageActive(): Boolean = companionPageEnabled && readerPresentation != null
+
+    fun getHingeGap(): Int {
+        if (!isDeviceFoldable && readerPreferences.autoAdjustHingeGap().get()) {
+            return 0
+        }
+        return _activeHingeGap.value
+    }
+
+    fun setCompanionPage(enabled: Boolean) {
+        companionPageEnabled = enabled
+        readerPreferences.companionPageEnabled().set(enabled)
         recreatePresentation()
     }
 
@@ -159,26 +179,26 @@ class ReaderActivity : BaseActivity() {
         readerPresentation?.dismiss()
         readerPresentation = null
 
-        try {
-            val intent = Intent(this, eu.kanade.tachiyomi.ui.main.DualScreenActivity::class.java)
-            intent.action = eu.kanade.tachiyomi.ui.main.DualScreenActivity.ACTION_FINISH
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-            startActivity(intent)
-        } catch (e: Exception) {
-            // Ignored: If DualScreenActivity is not found or fails to start, we simply don't show the secondary screen content.
+        if (preferences.enableDualScreenMode().get()) {
+            try {
+                val intent = Intent(this, eu.kanade.tachiyomi.ui.main.DualScreenActivity::class.java)
+                intent.action = eu.kanade.tachiyomi.ui.main.DualScreenActivity.ACTION_FINISH
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                startActivity(intent)
+            } catch (_: Exception) {
+            }
         }
 
         val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         val secondaryId = preferences.secondaryDisplayId().get()
         
-        // Try to get the manually selected display if it's not the default one
         var presentationDisplay = if (secondaryId != -1 && secondaryId != Display.DEFAULT_DISPLAY) {
             displayManager.getDisplay(secondaryId)
         } else {
             null
         }
 
-        // If manual selection failed, was invalid, or wasn't set, try auto-detect
+        // Fallback to auto-detect
         if (presentationDisplay == null) {
             presentationDisplay = displayManager.displays.find { it.displayId != Display.DEFAULT_DISPLAY }
         }
@@ -186,12 +206,18 @@ class ReaderActivity : BaseActivity() {
         val dualScreenEnabled = preferences.enableDualScreenMode().get()
 
         if (presentationDisplay != null && dualScreenEnabled) {
-            if (bookModeEnabled) {
-                readerPresentation = ReaderPresentation(this, presentationDisplay, this)
-                readerPresentation?.show()
-            } else {
-                controlsPresentation = ReaderControlsPresentation(this, presentationDisplay, this)
-                controlsPresentation?.show()
+            try {
+                if (companionPageEnabled) {
+                    readerPresentation = ReaderPresentation(this, presentationDisplay, this)
+                    readerPresentation?.show()
+                } else {
+                    controlsPresentation = ReaderControlsPresentation(this, presentationDisplay, this)
+                    controlsPresentation?.show()
+                }
+            } catch (e: WindowManager.InvalidDisplayException) {
+                logcat(LogPriority.WARN) { "Secondary display disconnected before show(): ${e.message}" }
+                readerPresentation = null
+                controlsPresentation = null
             }
         }
     }
@@ -227,8 +253,7 @@ class ReaderActivity : BaseActivity() {
         setContentView(binding.root)
         binding.setComposeOverlay()
 
-        // Check if book mode is enabled and create appropriate presentation
-        bookModeEnabled = readerPreferences.bookModeEnabled().get()
+        companionPageEnabled = readerPreferences.companionPageEnabled().get()
         recreatePresentation()
 
         if (viewModel.needsInit()) {
@@ -253,6 +278,70 @@ class ReaderActivity : BaseActivity() {
 
         config = ReaderConfig()
         setMenuVisibility(viewModel.state.value.menuVisible)
+
+        _activeHingeGap.value = readerPreferences.manualHingeGap().get()
+
+        readerPreferences.manualHingeGap().changes()
+            .onEach { _activeHingeGap.value = it }
+            .launchIn(lifecycleScope)
+
+        // Foldable state observation
+        FoldableUtils.windowLayoutInfoFlow(this)
+            .onEach { info ->
+                val isSpanned = FoldableUtils.isSpanned(info)
+                val foldingFeature = FoldableUtils.getFoldingFeature(info)
+                val currentSideBySide = readerPreferences.sideBySideMode().get()
+
+                if (foldingFeature != null) {
+                    isDeviceFoldable = true
+                }
+
+                logcat { "Spanned: $isSpanned, IsFoldable: $isDeviceFoldable" }
+
+                if (isDeviceFoldable && foldableStartupSettled) {
+                    if (isSpanned && !currentSideBySide && readerPreferences.autoEnableSideBySide().get()) {
+                        readerPreferences.sideBySideMode().set(true)
+                    } else if (!isSpanned && currentSideBySide && readerPreferences.autoDisableSideBySide().get()) {
+                        readerPreferences.sideBySideMode().set(false)
+                    }
+                }
+
+                // Hinge gap management
+                if (!isSpanned) {
+                    if (isDeviceFoldable && readerPreferences.autoAdjustHingeGap().get()) {
+                        if (_activeHingeGap.value != 0) {
+                            _activeHingeGap.value = 0
+                            (viewModel.state.value.viewer as? eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerViewer)?.refreshAdapter()
+                        }
+                    }
+                } else if (readerPreferences.autoAdjustHingeGap().get()) {
+                    val hingeBounds = FoldableUtils.getHingeBounds(info)
+                    if (hingeBounds != null) {
+                        val gap = if (hingeBounds.width() > hingeBounds.height()) hingeBounds.height() else hingeBounds.width()
+                        if (gap > 0 && _activeHingeGap.value != gap) {
+                            _activeHingeGap.value = gap
+                            (viewModel.state.value.viewer as? eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerViewer)?.refreshAdapter()
+                        }
+                    }
+                }
+            }
+            .launchIn(lifecycleScope)
+
+        if (readerPreferences.autoDisableSideBySideOnStart().get() &&
+            readerPreferences.sideBySideMode().get()) {
+            lifecycleScope.launch {
+                kotlinx.coroutines.delay(600L)
+                val info = FoldableUtils.windowLayoutInfoFlow(this@ReaderActivity).first()
+                val isSpanned = FoldableUtils.isSpanned(info)
+                if (!isSpanned) {
+                    logcat { "Auto-disabling Side-by-Side View on start (single screen detected)" }
+                    readerPreferences.sideBySideMode().set(false)
+                }
+                foldableStartupSettled = true
+            }
+        } else {
+            foldableStartupSettled = true
+        }
 
         // Finish when incognito mode is disabled
         preferences.incognitoMode().changes()
@@ -319,6 +408,8 @@ class ReaderActivity : BaseActivity() {
     private fun ReaderActivityBinding.setComposeOverlay(): Unit = composeOverlay.setComposeContent {
         val state by viewModel.state.collectAsState()
         val showPageNumber by readerPreferences.showPageNumber().collectAsState()
+        val sideBySideMode by readerPreferences.sideBySideMode().collectAsState()
+        
         val settingsScreenModel = remember {
             ReaderSettingsScreenModel(
                 readerState = viewModel.state,
@@ -329,13 +420,35 @@ class ReaderActivity : BaseActivity() {
 
         Box(modifier = Modifier.fillMaxSize()) {
             if (!state.menuVisible && showPageNumber) {
-                ReaderPageIndicator(
-                    currentPage = state.currentPage,
-                    totalPages = state.totalPages,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding(),
-                )
+                if (sideBySideMode) {
+                    val readingMode = ReadingMode.fromPreference(viewModel.getMangaReadingMode())
+                    val isRtl = readingMode == ReadingMode.RIGHT_TO_LEFT
+                    
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .navigationBarsPadding(),
+                        horizontalArrangement = Arrangement.SpaceAround,
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        ReaderPageIndicator(
+                            currentPage = if (isRtl) (state.currentPage + 1).coerceAtMost(state.totalPages) else state.currentPage,
+                            totalPages = state.totalPages,
+                        )
+                        ReaderPageIndicator(
+                            currentPage = if (isRtl) state.currentPage else (state.currentPage + 1).coerceAtMost(state.totalPages),
+                            totalPages = state.totalPages,
+                        )
+                    }
+                } else {
+                    ReaderPageIndicator(
+                        currentPage = state.currentPage,
+                        totalPages = state.totalPages,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding(),
+                    )
+                }
             }
 
             ContentOverlay(state = state)
@@ -432,14 +545,20 @@ class ReaderActivity : BaseActivity() {
      */
     override fun onResume() {
         super.onResume()
-        // If a presentation exists but is not showing (e.g. was dismissed), recreate it
-        if ((controlsPresentation != null && !controlsPresentation!!.isShowing) || 
-            (readerPresentation != null && !readerPresentation!!.isShowing)) {
+        val controls = controlsPresentation
+        val reader = readerPresentation
+        if ((controls != null && !controls.isShowing) ||
+            (reader != null && !reader.isShowing)) {
             recreatePresentation()
         }
         
         viewModel.restartReadTimer()
         setMenuVisibility(viewModel.state.value.menuVisible)
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        DualScreenState.triggerRotationUpdate()
     }
 
     /**
@@ -451,7 +570,7 @@ class ReaderActivity : BaseActivity() {
         if (hasFocus) {
             setMenuVisibility(viewModel.state.value.menuVisible)
         } else {
-            // Prevent the reader from pausing/stopping logic if focus is lost to our own second screen
+            // Keep read timer alive when focus shifts to our own secondary display
             if (controlsPresentation?.isShowing == true || readerPresentation?.isShowing == true) {
                 viewModel.restartReadTimer()
             }
@@ -473,14 +592,11 @@ class ReaderActivity : BaseActivity() {
         val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         val secondaryId = preferences.secondaryDisplayId().get()
         
-        // Try to get the manually selected display if it's not the default one
         var presentationDisplay = if (secondaryId != -1 && secondaryId != Display.DEFAULT_DISPLAY) {
             displayManager.getDisplay(secondaryId)
         } else {
             null
         }
-
-        // Fallback to auto-detect if manual selection is invalid
         if (presentationDisplay == null) {
             presentationDisplay = displayManager.displays.find { it.displayId != Display.DEFAULT_DISPLAY }
         }
@@ -568,6 +684,7 @@ class ReaderActivity : BaseActivity() {
         }
 
         val isHttpSource = viewModel.getSource() is HttpSource
+        val dsModeEnabled by preferences.enableDualScreenMode().collectAsState()
 
         val cropBorderPaged by readerPreferences.cropBorders().collectAsState()
         val cropBorderWebtoon by readerPreferences.cropBordersWebtoon().collectAsState()
@@ -614,10 +731,8 @@ class ReaderActivity : BaseActivity() {
                 menuToggleToast = toast(if (enabled) MR.strings.on else MR.strings.off)
             },
             onClickSettings = viewModel::openSettingsDialog,
-            bookModeEnabled = bookModeEnabled,
-            onClickBookMode = {
-                setBookMode(!bookModeEnabled)
-            },
+            companionPageEnabled = companionPageEnabled,
+            onClickDualScreenMode = if (dsModeEnabled) { { setCompanionPage(!companionPageEnabled) } } else null
         )
     }
 
@@ -795,11 +910,8 @@ class ReaderActivity : BaseActivity() {
      * Loads the next page. If at the end of the chapter, loads the next chapter.
      */
     fun loadNextPage() {
-        val current = viewModel.state.value.currentPage
-        val total = viewModel.state.value.totalPages
-        if (current < total) {
-            moveToPageIndex(current)
-        } else {
+        val viewer = viewModel.state.value.viewer ?: return
+        if (!viewer.moveToNext()) {
             loadNextChapter()
         }
     }
@@ -808,10 +920,8 @@ class ReaderActivity : BaseActivity() {
      * Loads the previous page. If at the start of the chapter, loads the previous chapter.
      */
     fun loadPreviousPage() {
-        val current = viewModel.state.value.currentPage
-        if (current > 1) {
-            moveToPageIndex(current - 2)
-        } else {
+        val viewer = viewModel.state.value.viewer ?: return
+        if (!viewer.moveToPrevious()) {
             loadPreviousChapter()
         }
     }
