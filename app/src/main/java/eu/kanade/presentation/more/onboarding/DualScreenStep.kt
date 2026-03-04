@@ -45,6 +45,8 @@ internal class DualScreenStep : OnboardingStep {
                 .map { it.displayId }
         }
 
+        val hasSecondaryDisplay = remember(detectedDisplays) { detectedDisplays.isNotEmpty() }
+
         val displayOptions = listOf(-1) + detectedDisplays
         val displayLabels = displayOptions.associateWith { id ->
             if (id == -1) stringResource(MR.strings.label_auto) else "ID: $id"
@@ -61,9 +63,14 @@ internal class DualScreenStep : OnboardingStep {
 
             SwitchPreferenceWidget(
                 title = stringResource(MR.strings.pref_dual_screen_mode),
-                subtitle = stringResource(MR.strings.pref_dual_screen_mode_summary),
+                subtitle = if (hasSecondaryDisplay) {
+                    stringResource(MR.strings.pref_dual_screen_mode_summary)
+                } else {
+                    stringResource(MR.strings.pref_dual_screen_no_secondary_display)
+                },
                 checked = dualScreenEnabled,
                 onCheckedChanged = { basePreferences.enableDualScreenMode().set(it) },
+                enabled = hasSecondaryDisplay,
             )
 
             if (dualScreenEnabled) {
