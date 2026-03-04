@@ -32,12 +32,17 @@ A specialized fork of [Mihon](https://mihon.app) optimized for devices with seco
 
 ## Supported Devices
 
-Mihon DS currently supports devices that expose their secondary screen as an external display to Android, including:
+### Dual-Screen Handhelds
+Companion page on the secondary display:
 *   **AYN Thor**
 *   **AYANEO Flip DS**
 *   **External Monitors** (via USB-C/HDMI)
 
-*Note: Internally virtualized dual-screen devices (like the Surface Duo) are not currently supported but may be added in the future.*
+### Foldable Devices
+Side-by-side view across the hinge:
+*   **Microsoft Surface Duo / Duo 2**
+*   **Samsung Galaxy Z Fold series**
+*   Other devices with Jetpack WindowManager FoldingFeature support
 
 ## Installation & Data Sharing
 
