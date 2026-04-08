@@ -101,7 +101,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
         pager.isVisible = false // Don't layout the pager yet
         pager.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
         pager.isFocusable = false
-        pager.offscreenPageLimit = 1
+        pager.offscreenPageLimit = if (config.sideBySideMode) 2 else 1
         pager.id = R.id.reader_pager
         pager.adapter = adapter
         pager.addOnPageChangeListener(pagerListener)
@@ -138,6 +138,11 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
             if (!enabled) {
                 cleanupPageSplit()
             }
+        }
+
+        config.sideBySideModeChangedListener = { enabled ->
+            pager.offscreenPageLimit = if (enabled) 2 else 1
+            needsFullAdapterReset = true
         }
 
         config.imagePropertyChangedListener = {
@@ -232,8 +237,22 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
                         page.number > (currentPage as ReaderPage).number
                     }
                 }
+                currentPage is ReaderItemPair && page is ReaderItemPair -> {
+                    val prevNum = ((currentPage as ReaderItemPair).first as? ReaderPage)?.number
+                    val newNum = (page.first as? ReaderPage)?.number
+                    if (prevNum != null && newNum != null) newNum > prevNum else true
+                }
+                currentPage is ReaderItemPair && page is ReaderPage -> {
+                    val prevNum = ((currentPage as ReaderItemPair).first as? ReaderPage)?.number
+                    if (prevNum != null) page.number > prevNum else true
+                }
+                currentPage is ReaderPage && page is ReaderItemPair -> {
+                    val newNum = (page.first as? ReaderPage)?.number
+                    if (newNum != null) newNum > (currentPage as ReaderPage).number else true
+                }
                 currentPage is ChapterTransition.Prev && page is ReaderPage ->
                     false
+                currentPage is ChapterTransition.Prev && page is ReaderItemPair -> false
                 else -> true
             }
             currentPage = page
@@ -548,6 +567,9 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
 
     private var pendingRefresh: Runnable? = null
 
+    // Main-thread only: set by sideBySideModeChangedListener, read by refreshAdapterInternal
+    private var needsFullAdapterReset = false
+
     /**
      * Resets the adapter in order to recreate all the views. Used when a image configuration is
      * changed. Debounced so rapid successive calls (e.g. during span/unspan) are coalesced.
@@ -567,9 +589,14 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
         val currentItem = (currentPage as? ReaderItemPair)?.first ?: currentPage
 
         adapter.refresh()
-        // Re-set adapter to force ViewPager to clear its view cache
-        pager.adapter = null
-        pager.adapter = adapter
+        if (needsFullAdapterReset) {
+            // Mode changed -- full reset required to rebuild view cache
+            pager.adapter = null
+            pager.adapter = adapter
+            needsFullAdapterReset = false
+        } else {
+            adapter.notifyDataSetChanged()
+        }
 
         activity.viewModel.state.value.viewerChapters?.let {
             val wasTransition = adapter.items.getOrNull(pager.currentItem) is ChapterTransition

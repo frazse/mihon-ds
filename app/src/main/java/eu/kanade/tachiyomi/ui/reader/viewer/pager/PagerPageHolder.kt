@@ -161,6 +161,7 @@ class PagerPageHolder(
                 Triple(source, isAnimated, background)
             }
             withUIContext {
+                if (!isAttachedToWindow) return@withUIContext
                 setImage(
                     source,
                     isAnimated,

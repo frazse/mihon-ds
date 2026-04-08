@@ -33,6 +33,8 @@ class PagerConfig(
 
     var dualPageSplitChangedListener: ((Boolean) -> Unit)? = null
 
+    var sideBySideModeChangedListener: ((Boolean) -> Unit)? = null
+
     var imageScaleType = 1
         private set
 
@@ -115,8 +117,8 @@ class PagerConfig(
 
         readerPreferences.sideBySideMode()
             .register(
-                { 
-                    sideBySideMode = it 
+                {
+                    sideBySideMode = it
                     // Force split on if Side-by-Side is enabled
                     val newSplit = it || readerPreferences.dualPageSplitPaged().get()
                     if (dualPageSplit != newSplit) {
@@ -124,7 +126,10 @@ class PagerConfig(
                         dualPageSplitChangedListener?.invoke(newSplit)
                     }
                 },
-                { imagePropertyChangedListener?.invoke() },
+                {
+                    sideBySideModeChangedListener?.invoke(sideBySideMode)
+                    imagePropertyChangedListener?.invoke()
+                },
             )
 
         readerPreferences.sideBySidePageOffset()

@@ -124,7 +124,17 @@ class MainActivity : BaseActivity() {
 
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) = checkAndStartDualScreenActivity()
-        override fun onDisplayRemoved(displayId: Int) {}
+        override fun onDisplayRemoved(displayId: Int) {
+            if (preferences.enableDualScreenMode().get()) {
+                val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+                val hasSecondary = displayManager.displays.any {
+                    it.displayId != Display.DEFAULT_DISPLAY && it.state == Display.STATE_ON
+                }
+                if (!hasSecondary) {
+                    preferences.enableDualScreenMode().set(false)
+                }
+            }
+        }
         override fun onDisplayChanged(displayId: Int) {}
     }
 
@@ -166,6 +176,16 @@ class MainActivity : BaseActivity() {
 
         val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         displayManager.registerDisplayListener(displayListener, null)
+
+        // Auto-disable DS mode on startup so users aren't stuck if the secondary display is gone
+        if (preferences.enableDualScreenMode().get()) {
+            val hasSecondary = displayManager.displays.any {
+                it.displayId != Display.DEFAULT_DISPLAY && it.state == Display.STATE_ON
+            }
+            if (!hasSecondary) {
+                preferences.enableDualScreenMode().set(false)
+            }
+        }
 
         preferences.enableDualScreenMode().changes()
             .onEach { enabled ->
