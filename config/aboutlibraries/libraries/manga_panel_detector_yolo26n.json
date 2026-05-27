@@ -1,0 +1,16 @@
+{
+  "uniqueId": "leoxs22:manga-panel-detector-yolo26n",
+  "artifactVersion": "sha256-b1a7d8d4492e04a777ae0d3efd9dc1fbd6e8f361971eadb813279ce3dfd1b464",
+  "name": "Manga Panel and Text Detector (YOLO26-nano)",
+  "description": "Bundled Guided Reading panel detector model. The model card identifies Leandro Narosky as author and states that the model was trained on the Manga109-s dataset (https://huggingface.co/datasets/hal-utokyo/Manga109-s).",
+  "website": "https://huggingface.co/leoxs22/manga-panel-detector-yolo26n",
+  "developers": [
+    {
+      "name": "Leandro Narosky"
+    }
+  ],
+  "licenses": [
+    "Apache-2.0"
+  ],
+  "tag": "model"
+}

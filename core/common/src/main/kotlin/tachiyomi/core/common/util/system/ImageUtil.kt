@@ -113,6 +113,16 @@ object ImageUtil {
         WEBP("image/webp", "webp"),
     }
 
+    data class ImageSize(
+        val width: Int,
+        val height: Int,
+    )
+
+    fun extractImageSize(imageSource: BufferedSource): ImageSize {
+        val options = extractImageOptions(imageSource)
+        return ImageSize(options.outWidth, options.outHeight)
+    }
+
     /**
      * Check whether the image is wide (which we consider a double-page spread).
      *

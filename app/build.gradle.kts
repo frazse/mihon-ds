@@ -20,6 +20,12 @@ if (Config.includeTelemetry) {
 
 shortcutHelper.setFilePath("./shortcuts.xml")
 
+aboutLibraries {
+    collect {
+        configPath = file("../config/aboutlibraries")
+    }
+}
+
 android {
     namespace = "eu.kanade.tachiyomi"
 
@@ -277,6 +283,9 @@ dependencies {
 
     // Logging
     implementation(libs.logcat)
+
+    // On-device ML inference
+    implementation(libs.litert)
 
     // Shizuku
     implementation(libs.bundles.shizuku)
