@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item name="reader_pager" type="id"/>
+    <item name="tag_panel_requested_page_key" type="id"/>
+    <item name="tag_panel_loaded_page_key" type="id"/>
 </resources>

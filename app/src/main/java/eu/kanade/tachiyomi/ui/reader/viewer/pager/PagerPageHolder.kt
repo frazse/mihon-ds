@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.ui.reader.viewer.pager
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.drawable.Drawable
 import android.view.LayoutInflater
 import androidx.core.view.isVisible
 import eu.kanade.presentation.util.formattedMessage
@@ -9,6 +10,11 @@ import eu.kanade.tachiyomi.databinding.ReaderErrorBinding
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.InsertPage
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
+import eu.kanade.tachiyomi.ui.reader.panel.PanelDetectionInput
+import eu.kanade.tachiyomi.ui.reader.panel.PanelDetectionImage
+import eu.kanade.tachiyomi.ui.reader.panel.PanelPageKey
+import eu.kanade.tachiyomi.ui.reader.panel.PanelPageRenderVariant
+import eu.kanade.tachiyomi.ui.reader.panel.panelPageKey
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
@@ -28,6 +34,19 @@ import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.i18n.MR
+
+private data class ProcessedPageImage(
+    val source: BufferedSource,
+    val renderVariant: PanelPageRenderVariant,
+)
+
+private data class LoadedPageImage(
+    val source: BufferedSource,
+    val detectionInput: PanelDetectionInput?,
+    val detectionUnavailableKey: PanelPageKey?,
+    val isAnimated: Boolean,
+    val background: Drawable?,
+)
 
 /**
  * View of the ViewPager that contains a page of a chapter.
@@ -150,31 +169,67 @@ class PagerPageHolder(
         val streamFn = page.stream ?: return
 
         try {
-            val (source, isAnimated, background) = withIOContext {
-                val source = streamFn().use { process(item, Buffer().readFrom(it)) }
+            val loadedImage = withIOContext {
+                val processedImage = streamFn().use { process(item, Buffer().readFrom(it)) }
+                val source = processedImage.source
                 val isAnimated = ImageUtil.isAnimatedAndSupported(source)
                 val background = if (!isAnimated && viewer.config.automaticBackground) {
                     ImageUtil.chooseBackground(context, source.peek().inputStream())
                 } else {
                     null
                 }
-                Triple(source, isAnimated, background)
+                val shouldDetectPanels = !isAnimated && viewer.activity.isPanelReadingActive()
+                val detectionKey = if (shouldDetectPanels) {
+                    page.panelPageKey(processedImage.renderVariant)
+                } else {
+                    null
+                }
+                val detectionInput = detectionKey?.let { key ->
+                    val imageSize = ImageUtil.extractImageSize(source)
+                    PanelDetectionImage
+                        .fromSourceOrNull(source)
+                        ?.let { image ->
+                            PanelDetectionInput(
+                                key = key,
+                                imageWidth = imageSize.width,
+                                imageHeight = imageSize.height,
+                                image = image,
+                            )
+                        }
+                }
+                LoadedPageImage(
+                    source = source,
+                    detectionInput = detectionInput,
+                    detectionUnavailableKey = detectionKey.takeIf { detectionInput == null },
+                    isAnimated = isAnimated,
+                    background = background,
+                )
             }
             withUIContext {
                 if (!isAttachedToWindow) return@withUIContext
+                loadedImage.detectionInput?.let { detectionInput ->
+                    viewer.activity.panelReadingController.onPageImageReady(detectionInput)
+                }
+                loadedImage.detectionUnavailableKey?.let { key ->
+                    viewer.activity.panelReadingController.onPageDetectionUnavailable(key)
+                }
                 setImage(
-                    source,
-                    isAnimated,
+                    loadedImage.source,
+                    loadedImage.isAnimated,
                     Config(
                         zoomDuration = viewer.config.doubleTapAnimDuration,
+                        panelTransitionDuration = viewer.config.panelReadingTransitionDuration,
+                        panelFocusEffect = viewer.config.panelReadingFocusEffect,
+                        panelFocusStrength = viewer.config.panelReadingFocusStrength,
+                        panelPrimaryOverlay = viewer.config.panelReadingPrimaryOverlay,
                         minimumScaleType = viewer.config.imageScaleType,
                         cropBorders = viewer.config.imageCropBorders,
                         zoomStartPosition = viewer.config.imageZoomType,
                         landscapeZoom = viewer.config.landscapeZoom,
                     ),
                 )
-                if (!isAnimated) {
-                    pageBackground = background
+                if (!loadedImage.isAnimated) {
+                    pageBackground = loadedImage.background
                 }
                 removeErrorLayout()
             }
@@ -186,13 +241,13 @@ class PagerPageHolder(
         }
     }
 
-    private fun process(page: ReaderPage, imageSource: BufferedSource): BufferedSource {
+    private fun process(page: ReaderPage, imageSource: BufferedSource): ProcessedPageImage {
         if (viewer.config.dualPageRotateToFit) {
             return rotateDualPage(imageSource)
         }
 
         if (!viewer.config.dualPageSplit) {
-            return imageSource
+            return ProcessedPageImage(imageSource, PanelPageRenderVariant.FULL)
         }
 
         if (page is InsertPage) {
@@ -201,7 +256,7 @@ class PagerPageHolder(
 
         val isDoublePage = ImageUtil.isWideImage(imageSource)
         if (!isDoublePage) {
-            return imageSource
+            return ProcessedPageImage(imageSource, PanelPageRenderVariant.FULL)
         }
 
         onPageSplit(page)
@@ -209,17 +264,22 @@ class PagerPageHolder(
         return splitInHalf(imageSource)
     }
 
-    private fun rotateDualPage(imageSource: BufferedSource): BufferedSource {
+    private fun rotateDualPage(imageSource: BufferedSource): ProcessedPageImage {
         val isDoublePage = ImageUtil.isWideImage(imageSource)
         return if (isDoublePage) {
             val rotation = if (viewer.config.dualPageRotateToFitInvert) -90f else 90f
-            ImageUtil.rotateImage(imageSource, rotation)
+            val renderVariant = if (viewer.config.dualPageRotateToFitInvert) {
+                PanelPageRenderVariant.ROTATE_NEGATIVE_90
+            } else {
+                PanelPageRenderVariant.ROTATE_90
+            }
+            ProcessedPageImage(ImageUtil.rotateImage(imageSource, rotation), renderVariant)
         } else {
-            imageSource
+            ProcessedPageImage(imageSource, PanelPageRenderVariant.FULL)
         }
     }
 
-    private fun splitInHalf(imageSource: BufferedSource): BufferedSource {
+    private fun splitInHalf(imageSource: BufferedSource): ProcessedPageImage {
         var side = when {
             viewer is L2RPagerViewer && page is InsertPage -> ImageUtil.Side.RIGHT
             viewer !is L2RPagerViewer && page is InsertPage -> ImageUtil.Side.LEFT
@@ -235,7 +295,12 @@ class PagerPageHolder(
             }
         }
 
-        return ImageUtil.splitInHalf(imageSource, side)
+        val renderVariant = when (side) {
+            ImageUtil.Side.LEFT -> PanelPageRenderVariant.SPLIT_LEFT
+            ImageUtil.Side.RIGHT -> PanelPageRenderVariant.SPLIT_RIGHT
+        }
+
+        return ProcessedPageImage(ImageUtil.splitInHalf(imageSource, side), renderVariant)
     }
 
     private fun onPageSplit(page: ReaderPage) {

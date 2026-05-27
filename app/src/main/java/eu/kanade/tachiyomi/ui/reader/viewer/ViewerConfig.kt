@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.ui.reader.viewer
 
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import eu.kanade.tachiyomi.ui.reader.panel.PanelFocusEffect
+import eu.kanade.tachiyomi.ui.reader.panel.PanelReadingSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
@@ -16,10 +18,16 @@ abstract class ViewerConfig(readerPreferences: ReaderPreferences, private val sc
 
     var navigationModeChangedListener: (() -> Unit)? = null
 
+    var panelReadingDisplayChangedListener: (() -> Unit)? = null
+
     var tappingInverted = ReaderPreferences.TappingInvertMode.NONE
     var longTapEnabled = true
     var usePageTransitions = false
     var doubleTapAnimDuration = 500
+    var panelReadingTransitionDuration = PanelReadingSettings.PANEL_TRANSITION_DEFAULT_MILLIS
+    var panelReadingFocusEffect = PanelFocusEffect.DARKEN
+    var panelReadingFocusStrength = PanelReadingSettings.PANEL_FOCUS_STRENGTH_DEFAULT
+    var panelReadingPrimaryOverlay = true
     var volumeKeysEnabled = false
     var volumeKeysInverted = false
     var alwaysShowChapterTransition = true
@@ -54,6 +62,30 @@ abstract class ViewerConfig(readerPreferences: ReaderPreferences, private val sc
 
         readerPreferences.doubleTapAnimSpeed()
             .register({ doubleTapAnimDuration = it })
+
+        readerPreferences.panelReadingTransitionMillis()
+            .register(
+                { panelReadingTransitionDuration = PanelReadingSettings.normalizeTransitionMillis(it) },
+                { panelReadingDisplayChangedListener?.invoke() },
+            )
+
+        readerPreferences.panelReadingFocusEffect()
+            .register(
+                { panelReadingFocusEffect = it },
+                { panelReadingDisplayChangedListener?.invoke() },
+            )
+
+        readerPreferences.panelReadingFocusStrength()
+            .register(
+                { panelReadingFocusStrength = PanelReadingSettings.normalizeFocusStrength(it) },
+                { panelReadingDisplayChangedListener?.invoke() },
+            )
+
+        readerPreferences.panelReadingPrimaryOverlay()
+            .register(
+                { panelReadingPrimaryOverlay = it },
+                { panelReadingDisplayChangedListener?.invoke() },
+            )
 
         readerPreferences.readWithVolumeKeys()
             .register({ volumeKeysEnabled = it })

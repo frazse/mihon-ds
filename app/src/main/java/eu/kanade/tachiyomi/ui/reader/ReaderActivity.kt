@@ -28,8 +28,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -37,6 +39,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.getSystemService
 import androidx.core.graphics.Insets
@@ -73,11 +79,16 @@ import eu.kanade.tachiyomi.ui.reader.ReaderViewModel.SetAsCoverResult.Success
 import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.model.ViewerChapters
+import eu.kanade.tachiyomi.ui.reader.panel.LazyPanelDetector
+import eu.kanade.tachiyomi.ui.reader.panel.LiteRtPanelDetector
+import eu.kanade.tachiyomi.ui.reader.panel.PanelReadingController
+import eu.kanade.tachiyomi.ui.reader.panel.PanelReadingDirection
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsScreenModel
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
+import eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerViewer
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.system.isNightMode
 import eu.kanade.tachiyomi.util.system.openInBrowser
@@ -140,6 +151,26 @@ class ReaderActivity : BaseActivity() {
     private var menuToggleToast: Toast? = null
     private var readingModeToast: Toast? = null
     private val displayRefreshHost = DisplayRefreshHost()
+    private val panelDetector by lazy {
+        LazyPanelDetector {
+            LiteRtPanelDetector(this)
+        }
+    }
+    val panelReadingController by lazy {
+        PanelReadingController(
+            scope = lifecycleScope,
+            detector = panelDetector,
+            isEnabled = { isPanelReadingActive() },
+            readingDirection = {
+                val mode = ReadingMode.fromPreference(viewModel.getMangaReadingMode(resolveDefault = true))
+                if (mode == ReadingMode.RIGHT_TO_LEFT) {
+                    PanelReadingDirection.RIGHT_TO_LEFT
+                } else {
+                    PanelReadingDirection.LEFT_TO_RIGHT
+                }
+            },
+        )
+    }
 
     private val windowInsetsController by lazy { WindowInsetsControllerCompat(window, window.decorView) }
 
@@ -157,8 +188,31 @@ class ReaderActivity : BaseActivity() {
 
     fun isCompanionPageEnabled(): Boolean = companionPageEnabled
 
-    // True when secondary display is showing the companion page (pager advances by 2)
-    fun isCompanionPageActive(): Boolean = companionPageEnabled && readerPresentation != null
+    // True when secondary display is showing the companion page (pager advances by 2).
+    fun isCompanionPageActive(): Boolean {
+        return companionPageEnabled &&
+            !isPanelReadingActive() &&
+            readerPresentation != null
+    }
+
+    fun isPanelReadingActive(): Boolean {
+        return ReaderPanelReadingMode.isActive(
+            panelReadingEnabled = readerPreferences.panelReadingPaged().get(),
+            readingModePreference = viewModel.getMangaReadingMode(resolveDefault = true),
+        )
+    }
+
+    fun togglePanelReading(): Boolean {
+        val enabled = !readerPreferences.panelReadingPaged().get()
+        readerPreferences.panelReadingPaged().set(enabled)
+        panelReadingController.setEnabledState(
+            ReaderPanelReadingMode.isActive(
+                panelReadingEnabled = enabled,
+                readingModePreference = viewModel.getMangaReadingMode(resolveDefault = true),
+            ),
+        )
+        return enabled
+    }
 
     fun getHingeGap(): Int {
         if (!isDeviceFoldable && readerPreferences.autoAdjustHingeGap().get()) {
@@ -207,12 +261,20 @@ class ReaderActivity : BaseActivity() {
 
         if (presentationDisplay != null && dualScreenEnabled) {
             try {
-                if (companionPageEnabled) {
-                    readerPresentation = ReaderPresentation(this, presentationDisplay, this)
-                    readerPresentation?.show()
-                } else {
-                    controlsPresentation = ReaderControlsPresentation(this, presentationDisplay, this)
-                    controlsPresentation?.show()
+                when (
+                    ReaderSecondaryPresentationSelector.mode(
+                        companionPageEnabled = companionPageEnabled,
+                        panelReadingEnabled = isPanelReadingActive(),
+                    )
+                ) {
+                    SecondaryPresentationMode.PAGE -> {
+                        readerPresentation = ReaderPresentation(this, presentationDisplay, this)
+                        readerPresentation?.show()
+                    }
+                    SecondaryPresentationMode.CONTROLS -> {
+                        controlsPresentation = ReaderControlsPresentation(this, presentationDisplay, this)
+                        controlsPresentation?.show()
+                    }
                 }
             } catch (e: WindowManager.InvalidDisplayException) {
                 logcat(LogPriority.WARN) { "Secondary display disconnected before show(): ${e.message}" }
@@ -278,6 +340,21 @@ class ReaderActivity : BaseActivity() {
 
         config = ReaderConfig()
         setMenuVisibility(viewModel.state.value.menuVisible)
+
+        panelReadingController.setEnabledState(isPanelReadingActive())
+
+        readerPreferences.panelReadingPaged().changes()
+            .drop(1)
+            .distinctUntilChanged()
+            .onEach {
+                val enabled = isPanelReadingActive()
+                panelReadingController.setEnabledState(enabled)
+                recreatePresentation()
+                if (enabled) {
+                    (viewModel.state.value.viewer as? PagerViewer)?.refreshAdapter(forceFullReset = true)
+                }
+            }
+            .launchIn(lifecycleScope)
 
         _activeHingeGap.value = readerPreferences.manualHingeGap().get()
 
@@ -409,6 +486,12 @@ class ReaderActivity : BaseActivity() {
         val state by viewModel.state.collectAsState()
         val showPageNumber by readerPreferences.showPageNumber().collectAsState()
         val sideBySideMode by readerPreferences.sideBySideMode().collectAsState()
+        val panelReadingPreferenceEnabled by readerPreferences.panelReadingPaged().collectAsState()
+        val panelState by panelReadingController.state.collectAsState()
+        val panelReadingEnabled = ReaderPanelReadingMode.isActive(
+            panelReadingEnabled = panelReadingPreferenceEnabled,
+            readingModePreference = viewModel.getMangaReadingMode(resolveDefault = true),
+        )
         
         val settingsScreenModel = remember {
             ReaderSettingsScreenModel(
@@ -449,6 +532,22 @@ class ReaderActivity : BaseActivity() {
                             .navigationBarsPadding(),
                     )
                 }
+            }
+
+            if (
+                panelReadingEnabled &&
+                !state.menuVisible &&
+                state.dialog == null &&
+                panelState.panelCount > 0 &&
+                panelState.panelIndex >= 0
+            ) {
+                PanelReadingIndicator(
+                    panelIndex = panelState.panelIndex,
+                    panelCount = panelState.panelCount,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding(),
+                )
             }
 
             ContentOverlay(state = state)
@@ -517,10 +616,46 @@ class ReaderActivity : BaseActivity() {
         }
     }
 
+    @Composable
+    private fun PanelReadingIndicator(
+        panelIndex: Int,
+        panelCount: Int,
+        modifier: Modifier = Modifier,
+    ) {
+        if (panelIndex < 0 || panelCount <= 0) return
+
+        val text = stringResource(MR.strings.panel_indicator, panelIndex + 1, panelCount)
+        val style = TextStyle(
+            color = ComposeColor(235, 235, 235).copy(alpha = 0.92f),
+            fontSize = MaterialTheme.typography.labelSmall.fontSize,
+            fontWeight = FontWeight.SemiBold,
+        )
+        val strokeStyle = style.copy(
+            color = ComposeColor(45, 45, 45).copy(alpha = 0.82f),
+            drawStyle = Stroke(width = 3f),
+        )
+
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = modifier,
+        ) {
+            Text(
+                text = text,
+                style = strokeStyle,
+            )
+            Text(
+                text = text,
+                style = style,
+            )
+        }
+    }
+
     /**
      * Called when the activity is destroyed. Cleans up the viewer, configuration and any view.
      */
     override fun onDestroy() {
+        panelReadingController.cancel()
+        panelDetector.close()
         controlsPresentation?.dismiss()
         controlsPresentation = null
         readerPresentation?.dismiss()
@@ -688,8 +823,13 @@ class ReaderActivity : BaseActivity() {
 
         val cropBorderPaged by readerPreferences.cropBorders().collectAsState()
         val cropBorderWebtoon by readerPreferences.cropBordersWebtoon().collectAsState()
+        val panelReadingPreferenceEnabled by readerPreferences.panelReadingPaged().collectAsState()
         val isPagerType = ReadingMode.isPagerType(viewModel.getMangaReadingMode())
         val cropEnabled = if (isPagerType) cropBorderPaged else cropBorderWebtoon
+        val panelReadingEnabled = ReaderPanelReadingMode.isActive(
+            panelReadingEnabled = panelReadingPreferenceEnabled,
+            readingModePreference = viewModel.getMangaReadingMode(resolveDefault = true),
+        )
 
         ReaderAppBars(
             visible = state.menuVisible,
@@ -732,7 +872,17 @@ class ReaderActivity : BaseActivity() {
             },
             onClickSettings = viewModel::openSettingsDialog,
             companionPageEnabled = companionPageEnabled,
-            onClickDualScreenMode = if (dsModeEnabled) { { setCompanionPage(!companionPageEnabled) } } else null
+            onClickDualScreenMode = if (dsModeEnabled) { { setCompanionPage(!companionPageEnabled) } } else null,
+            panelReadingEnabled = panelReadingEnabled,
+            onClickPanelReading = if (isPagerType && panelReadingPreferenceEnabled) {
+                {
+                    val enabled = togglePanelReading()
+                    menuToggleToast?.cancel()
+                    menuToggleToast = toast(if (enabled) MR.strings.on else MR.strings.off)
+                }
+            } else {
+                null
+            },
         )
     }
 
@@ -780,6 +930,9 @@ class ReaderActivity : BaseActivity() {
 
         loadingIndicator = ReaderProgressIndicator(this)
         binding.readerContainer.addView(loadingIndicator)
+
+        panelReadingController.setEnabledState(isPanelReadingActive())
+        recreatePresentation()
 
         startPostponedEnterTransition()
     }

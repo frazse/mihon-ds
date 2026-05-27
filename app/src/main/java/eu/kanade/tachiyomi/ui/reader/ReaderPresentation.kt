@@ -4,6 +4,7 @@ import android.app.Presentation
 import android.content.Context
 import android.graphics.Color
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.Display
 import android.view.Gravity
 import android.view.MotionEvent
@@ -30,8 +31,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -57,6 +58,11 @@ import androidx.core.content.ContextCompat
 import eu.kanade.tachiyomi.R
 import eu.kanade.presentation.reader.appbars.ReaderAppBars
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
+import eu.kanade.tachiyomi.ui.reader.panel.PanelPageRenderVariant
+import eu.kanade.tachiyomi.ui.reader.panel.PanelPageKey
+import eu.kanade.tachiyomi.ui.reader.panel.PanelReadingSettings
+import eu.kanade.tachiyomi.ui.reader.panel.hasSameLogicalPage
+import eu.kanade.tachiyomi.ui.reader.panel.panelPageKey
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.webtoon.WebtoonViewer
@@ -73,7 +79,9 @@ import okio.Buffer
 import mihon.core.dualscreen.DualScreenState
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.withIOContext
+import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.presentation.core.util.collectAsState
 
 private class TouchInterceptFrameLayout(context: android.content.Context) : FrameLayout(context) {
     var externalGestureDetector: GestureDetector? = null
@@ -88,6 +96,8 @@ private class TouchInterceptFrameLayout(context: android.content.Context) : Fram
         return true
     }
 }
+
+private const val PANEL_TAP_MENU_SUPPRESSION_MS = 700L
 
 class ReaderPresentation(
     outerContext: Context,
@@ -110,6 +120,7 @@ class ReaderPresentation(
 
     private var container: TouchInterceptFrameLayout? = null
     private var composeView: androidx.compose.ui.platform.ComposeView? = null
+    private var suppressSecondaryTapUntil = 0L
 
     private var localMenuVisibleState: MutableState<Boolean>? = null
     var localMenuVisible: Boolean
@@ -181,6 +192,15 @@ class ReaderPresentation(
         val state by activity.viewModel.state.collectAsState()
         val readingMode = ReadingMode.fromPreference(activity.viewModel.getMangaReadingMode(resolveDefault = true))
         val isRtl = readingMode == ReadingMode.RIGHT_TO_LEFT
+        val panelReadingPreferenceEnabled by activity.readerPreferences.panelReadingPaged().collectAsState()
+        val panelTransitionMillis by activity.readerPreferences.panelReadingTransitionMillis().collectAsState()
+        val panelFocusEffect by activity.readerPreferences.panelReadingFocusEffect().collectAsState()
+        val panelFocusStrength by activity.readerPreferences.panelReadingFocusStrength().collectAsState()
+        val panelReadingState by activity.panelReadingController.state.collectAsState()
+        val panelReadingEnabled = ReaderPanelReadingMode.isActive(
+            panelReadingEnabled = panelReadingPreferenceEnabled,
+            readingModePreference = activity.viewModel.getMangaReadingMode(resolveDefault = true),
+        )
 
         val currentPage by activity.viewModel.state
             .map { it.currentPage }
@@ -192,8 +212,29 @@ class ReaderPresentation(
             .distinctUntilChanged()
             .collectAsState(initial = state.currentChapter?.pages)
 
-        val secondaryPageNum = getSecondaryPageNumber(currentPage)
-        val secondaryPage = currentChapterPages?.getOrNull(secondaryPageNum - 1)
+        val panelRenderVariant = panelReadingState.key?.renderVariant ?: PanelPageRenderVariant.FULL
+        val currentDisplayPage = currentChapterPages?.getOrNull(currentPage - 1)
+        val currentDisplayPageKey = currentDisplayPage?.panelPageKey(panelRenderVariant)
+        val currentDisplayInsertPageKey = currentDisplayPageKey?.copy(isInsertPage = true)
+        val panelMapEnabled = panelReadingEnabled &&
+            panelReadingState.activePanel != null &&
+            (
+                currentDisplayPageKey?.hasSameLogicalPage(panelReadingState.key) == true ||
+                    currentDisplayInsertPageKey?.hasSameLogicalPage(panelReadingState.key) == true
+                )
+
+        val displayPageNum = if (panelReadingEnabled) {
+            currentPage
+        } else {
+            getSecondaryPageNumber(currentPage)
+        }
+        val displayPage = currentChapterPages?.getOrNull(displayPageNum - 1)
+        val activePanel = panelReadingState.activePanel.takeIf { panelMapEnabled }
+        val displayRenderVariant = if (panelMapEnabled) {
+            panelRenderVariant
+        } else {
+            PanelPageRenderVariant.FULL
+        }
 
         val menuState = remember { mutableStateOf(false) }
         localMenuVisibleState = menuState
@@ -209,7 +250,7 @@ class ReaderPresentation(
                 WebtoonSpannedContent(activity, state.viewer as WebtoonViewer)
             } else {
                 AnimatedContent(
-                    targetState = secondaryPage,
+                    targetState = displayPage,
                     transitionSpec = {
                         val targetIdx = targetState?.index
                         val initialIdx = initialState?.index
@@ -255,7 +296,31 @@ class ReaderPresentation(
                                 }
                             },
                             update = { view ->
-                                loadPageIntoView(view, page)
+                                val requestedKey = view.getTag(R.id.tag_panel_requested_page_key)
+                                val pageKey = page.panelPageKey(displayRenderVariant)
+                                if (ReaderPresentationPageLoadGuard.shouldStartPageLoad(pageKey, requestedKey)) {
+                                    view.prepareForPageLoad(pageKey)
+                                    loadPageIntoView(view, page, displayRenderVariant)
+                                }
+                                view.applyPanelReadingDisplayConfig(
+                                    panelTransitionDuration = panelTransitionMillis,
+                                    panelFocusEffect = panelFocusEffect,
+                                    panelFocusStrength = panelFocusStrength,
+                                    panelPrimaryOverlay = true,
+                                )
+                                val panelKey = panelReadingState.key
+                                if (panelMapEnabled && activePanel != null && panelKey != null) {
+                                    view.showPanelMap(
+                                        panels = panelReadingState.panels,
+                                        activePanel = activePanel,
+                                        showNumbers = true,
+                                    ) { panelIndex ->
+                                        suppressSecondaryTap()
+                                        activity.panelReadingController.selectPanel(panelKey, panelIndex)
+                                    }
+                                } else {
+                                    view.highlightPanel(null)
+                                }
                             },
                             modifier = Modifier.fillMaxSize()
                         )
@@ -288,14 +353,20 @@ class ReaderPresentation(
                     enabledNext = state.viewerChapters?.nextChapter != null,
                     onPreviousChapter = { activity.loadPreviousChapter() },
                     enabledPrevious = state.viewerChapters?.prevChapter != null,
-                    currentPage = secondaryPageNum.coerceIn(1, state.totalPages),
+                    currentPage = displayPageNum.coerceIn(1, state.totalPages),
                     totalPages = state.totalPages,
                     onPageIndexChange = { newPageIndex ->
                         val currentReadingMode = ReadingMode.fromPreference(
                             activity.viewModel.getMangaReadingMode(resolveDefault = true),
                         )
                         val currentIsRtl = currentReadingMode == ReadingMode.RIGHT_TO_LEFT
-                        val primaryPageIndex = if (currentIsRtl) newPageIndex + 1 else newPageIndex - 1
+                        val primaryPageIndex = if (panelReadingEnabled) {
+                            newPageIndex
+                        } else if (currentIsRtl) {
+                            newPageIndex + 1
+                        } else {
+                            newPageIndex - 1
+                        }
                         activity.moveToPageIndex(primaryPageIndex.coerceIn(0, state.totalPages - 1))
                     },
                     readingMode = readingMode,
@@ -309,6 +380,17 @@ class ReaderPresentation(
                     onClickSettings = { activity.viewModel.openSettingsDialog() },
                     companionPageEnabled = activity.isCompanionPageEnabled(),
                     onClickDualScreenMode = { activity.setCompanionPage(!activity.isCompanionPageEnabled()) },
+                    panelReadingEnabled = panelReadingEnabled,
+                    onClickPanelReading = if (
+                        panelReadingPreferenceEnabled &&
+                        ReadingMode.isPagerType(activity.viewModel.getMangaReadingMode())
+                    ) {
+                        {
+                            activity.togglePanelReading()
+                        }
+                    } else {
+                        null
+                    },
                 )
             }
         }
@@ -430,13 +512,28 @@ class ReaderPresentation(
         )
     }
 
-    private fun loadPageIntoView(view: ReaderPageImageView, page: ReaderPage) {
+    private fun loadPageIntoView(
+        view: ReaderPageImageView,
+        page: ReaderPage,
+        renderVariant: PanelPageRenderVariant = PanelPageRenderVariant.FULL,
+    ) {
+        val expectedKey = page.panelPageKey(renderVariant)
         val stream = page.stream
         val status = page.status
+
+        if (status is Page.State.Ready && stream == null) {
+            view.recycle()
+            return
+        }
 
         if (stream != null && status is Page.State.Ready) {
             val config = ReaderPageImageView.Config(
                 zoomDuration = 500,
+                panelTransitionDuration = activity.readerPreferences.panelReadingTransitionMillis().get(),
+                panelFocusEffect = activity.readerPreferences.panelReadingFocusEffect().get(),
+                panelFocusStrength = PanelReadingSettings.normalizeFocusStrength(
+                    activity.readerPreferences.panelReadingFocusStrength().get(),
+                ),
                 minimumScaleType = com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView.SCALE_TYPE_CENTER_INSIDE,
                 cropBorders = false,
                 zoomStartPosition = ReaderPageImageView.ZoomStartPosition.CENTER,
@@ -445,27 +542,60 @@ class ReaderPresentation(
             lifecycleScope.launch {
                 try {
                     val bufferedSource = withIOContext {
-                        stream().use { Buffer().readFrom(it) }
+                        val source = stream().use { Buffer().readFrom(it) }
+                        when (renderVariant) {
+                            PanelPageRenderVariant.FULL -> source
+                            PanelPageRenderVariant.SPLIT_LEFT -> ImageUtil.splitInHalf(source, ImageUtil.Side.LEFT)
+                            PanelPageRenderVariant.SPLIT_RIGHT -> ImageUtil.splitInHalf(source, ImageUtil.Side.RIGHT)
+                            PanelPageRenderVariant.ROTATE_90 -> ImageUtil.rotateImage(source, 90f)
+                            PanelPageRenderVariant.ROTATE_NEGATIVE_90 -> ImageUtil.rotateImage(source, -90f)
+                        }
                     }
-                    if (!view.isAttachedToWindow) return@launch
-                    val isAnimated = false
+                    if (!view.canApplyPageLoad(expectedKey)) return@launch
+                    val isAnimated = ImageUtil.isAnimatedAndSupported(bufferedSource)
                     view.setImage(bufferedSource, isAnimated, config)
+                    view.setTag(R.id.tag_panel_loaded_page_key, expectedKey)
                 } catch (e: Exception) {
                     logcat { "Error loading page image: ${e.message}" }
+                    if (view.canApplyPageLoad(expectedKey)) {
+                        view.recycle()
+                    }
                 }
             }
-        } else if (status is Page.State.Queue || status is Page.State.LoadPage) {
+        } else if (status is Page.State.Error) {
+            view.recycle()
+        } else {
             val loader = page.chapter.pageLoader
-            if (loader != null) {
+            if (loader != null && (status is Page.State.Queue || status is Page.State.LoadPage)) {
                 launchIO {
                     loader.loadPage(page)
                 }
             }
             lifecycleScope.launch {
-                page.statusFlow.first { it is Page.State.Ready }
-                loadPageIntoView(view, page)
+                val terminalStatus = page.statusFlow.first { it is Page.State.Ready || it is Page.State.Error }
+                if (!view.canApplyPageLoad(expectedKey)) return@launch
+                if (terminalStatus is Page.State.Ready) {
+                    loadPageIntoView(view, page, renderVariant)
+                } else {
+                    view.recycle()
+                }
             }
         }
+    }
+
+    private fun ReaderPageImageView.prepareForPageLoad(expectedKey: PanelPageKey) {
+        setTag(R.id.tag_panel_requested_page_key, expectedKey)
+        setTag(R.id.tag_panel_loaded_page_key, null)
+        recycle()
+        highlightPanel(null)
+    }
+
+    private fun ReaderPageImageView.canApplyPageLoad(expectedKey: PanelPageKey): Boolean {
+        return ReaderPresentationPageLoadGuard.canApplyPageLoad(
+            expectedKey = expectedKey,
+            requestedTag = getTag(R.id.tag_panel_requested_page_key),
+            isAttached = isAttachedToWindow,
+        )
     }
 
     private fun setupGestureDetector() {
@@ -533,6 +663,11 @@ class ReaderPresentation(
     }
 
     private fun handleSecondaryScreenTap() {
+        if (SystemClock.uptimeMillis() < suppressSecondaryTapUntil) {
+            suppressSecondaryTapUntil = 0L
+            return
+        }
+
         val currentLocalMenu = localMenuVisible
         val primaryMenuVisible = activity.viewModel.state.value.menuVisible
 
@@ -542,6 +677,10 @@ class ReaderPresentation(
             localMenuVisible = true
             if (primaryMenuVisible) activity.hideMenu()
         }
+    }
+
+    private fun suppressSecondaryTap() {
+        suppressSecondaryTapUntil = SystemClock.uptimeMillis() + PANEL_TAP_MENU_SUPPRESSION_MS
     }
 
     // R2L: companion is N-1 (right side), L2R: companion is N+1 (left side)

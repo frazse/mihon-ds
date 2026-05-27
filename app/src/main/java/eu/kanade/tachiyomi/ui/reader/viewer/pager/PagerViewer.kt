@@ -18,10 +18,17 @@ import eu.kanade.tachiyomi.ui.reader.model.InsertPage
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.model.ReaderItemPair
 import eu.kanade.tachiyomi.ui.reader.model.ViewerChapters
+import eu.kanade.tachiyomi.ui.reader.panel.PanelMoveResult
+import eu.kanade.tachiyomi.ui.reader.panel.PanelPageKey
+import eu.kanade.tachiyomi.ui.reader.panel.hasSameLogicalPage
+import eu.kanade.tachiyomi.ui.reader.panel.panelPageKey
 import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
 import eu.kanade.tachiyomi.ui.reader.viewer.ViewerNavigation.NavigationRegion
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import tachiyomi.core.common.util.system.logcat
 import uy.kohesive.injekt.injectLazy
 import kotlin.math.min
@@ -59,6 +66,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
 
     // Used by companion-page step logic to detect single-step swipes and advance by 2
     private var lastReportedPosition = -1
+    private var lastFocusedPanel: Pair<PanelPageKey, String>? = null
 
     /**
      * Viewer chapters to set when the pager enters idle mode. Otherwise, if the view was settling
@@ -149,6 +157,10 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
             refreshAdapter()
         }
 
+        config.panelReadingDisplayChangedListener = {
+            applyPanelReadingDisplayConfigToVisiblePages()
+        }
+
         config.navigationModeChangedListener = {
             val showOnStart = config.navigationOverlayOnStart || config.forceNavigationOverlay
             activity.binding.navigationOverlay.setNavigation(config.navigator, showOnStart)
@@ -159,6 +171,27 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
             val widthChanged = (right - left) != (oldRight - oldLeft)
             if (widthChanged) {
                 refreshAdapter()
+            }
+        }
+
+        scope.launch {
+            activity.panelReadingController.state.collect { state ->
+                val key = state.key
+                val panel = state.activePanel
+                if (key == null || panel == null) {
+                    lastFocusedPanel = null
+                    clearPanelFocusOnVisiblePages()
+                    return@collect
+                }
+
+                val focusKey = key to panel.id
+                if (lastFocusedPanel == focusKey) return@collect
+
+                val page = currentReaderPages().firstOrNull { it.matchesPanelKey(key) } ?: return@collect
+                lastFocusedPanel = focusKey
+                pager.post {
+                    focusActivePanel(page)
+                }
             }
         }
     }
@@ -199,12 +232,146 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
         return null
     }
 
+    private fun currentReaderPages(): List<ReaderPage> {
+        return when (val item = currentPage) {
+            is ReaderPage -> listOf(item)
+            is ReaderItemPair -> listOfNotNull(
+                item.first as? ReaderPage,
+                item.second as? ReaderPage,
+            )
+            else -> emptyList()
+        }
+    }
+
+    private fun currentPanelReaderPage(): ReaderPage? {
+        val pages = currentReaderPages()
+        val activeKey = activity.panelReadingController.state.value.key
+        return pages.firstOrNull { it.matchesPanelKey(activeKey) }
+            ?: pages.firstOrNull()
+    }
+
+    private fun focusActivePanel(page: ReaderPage): Boolean {
+        val key = panelKeyFor(page)
+        val panel = activity.panelReadingController.activePanelFor(key) ?: return false
+        val holder = getPageHolder(page) ?: return false
+        holder.focusOnPanel(panel)
+        return true
+    }
+
+    private fun clearPanelFocusOnVisiblePages() {
+        currentReaderPages().forEach { page ->
+            getPageHolder(page)?.clearPanelFocus()
+        }
+    }
+
+    private fun applyPanelReadingDisplayConfigToVisiblePages() {
+        currentReaderPages().forEach { page ->
+            getPageHolder(page)?.applyPanelReadingDisplayConfig(
+                panelTransitionDuration = config.panelReadingTransitionDuration,
+                panelFocusEffect = config.panelReadingFocusEffect,
+                panelFocusStrength = config.panelReadingFocusStrength,
+                panelPrimaryOverlay = config.panelReadingPrimaryOverlay,
+            )
+        }
+    }
+
+    private fun panelKeyFor(page: ReaderPage): PanelPageKey {
+        val activeKey = activity.panelReadingController.state.value.key
+        return activeKey.takeIf { page.matchesPanelKey(it) } ?: page.panelPageKey()
+    }
+
+    private fun ReaderPage.matchesPanelKey(key: PanelPageKey?): Boolean {
+        return panelPageKey().hasSameLogicalPage(key)
+    }
+
+    private fun isCurrentVisiblePage(page: ReaderPage, key: PanelPageKey): Boolean {
+        return currentReaderPages().any { it == page && it.matchesPanelKey(key) }
+    }
+
+    private fun moveToNextPanel(
+        fallback: () -> Boolean,
+        onFallbackUnavailable: (() -> Unit)? = null,
+    ): Boolean {
+        currentPanelReaderPage()?.let { page ->
+            val key = panelKeyFor(page)
+            when (activity.panelReadingController.moveToNextPanel(key)) {
+                PanelMoveResult.Moved -> {
+                    focusActivePanel(page)
+                    return true
+                }
+                PanelMoveResult.Pending -> {
+                    schedulePendingPanelMove(page, key, moveNext = true, fallback, onFallbackUnavailable)
+                    return true
+                }
+                PanelMoveResult.NoPanelStep,
+                PanelMoveResult.Disabled,
+                -> Unit
+            }
+        }
+        return false
+    }
+
+    private fun moveToPreviousPanel(
+        fallback: () -> Boolean,
+        onFallbackUnavailable: (() -> Unit)? = null,
+    ): Boolean {
+        currentPanelReaderPage()?.let { page ->
+            val key = panelKeyFor(page)
+            when (activity.panelReadingController.moveToPreviousPanel(key)) {
+                PanelMoveResult.Moved -> {
+                    focusActivePanel(page)
+                    return true
+                }
+                PanelMoveResult.Pending -> {
+                    schedulePendingPanelMove(page, key, moveNext = false, fallback, onFallbackUnavailable)
+                    return true
+                }
+                PanelMoveResult.NoPanelStep,
+                PanelMoveResult.Disabled,
+                -> Unit
+            }
+        }
+        return false
+    }
+
+    private fun schedulePendingPanelMove(
+        page: ReaderPage,
+        key: PanelPageKey,
+        moveNext: Boolean,
+        fallback: () -> Boolean,
+        onFallbackUnavailable: (() -> Unit)?,
+    ) {
+        scope.launch {
+            delay(PANEL_DETECTION_GRACE_MS)
+
+            if (!isCurrentVisiblePage(page, key)) return@launch
+
+            if (moveNext && focusActivePanel(page)) {
+                return@launch
+            }
+
+            val result = if (moveNext) {
+                activity.panelReadingController.moveToNextPanel(key)
+            } else {
+                activity.panelReadingController.moveToPreviousPanel(key)
+            }
+
+            if (result == PanelMoveResult.Moved) {
+                focusActivePanel(page)
+            } else if (isCurrentVisiblePage(page, key)) {
+                if (!fallback()) {
+                    onFallbackUnavailable?.invoke()
+                }
+            }
+        }
+    }
+
     /**
      * Called when a new page (either a [ReaderPage] or [ChapterTransition]) is marked as active
      */
     private fun onPageChange(position: Int) {
         // Companion page: advance 2 positions per swipe, but never skip transitions
-        if (activity.isCompanionPageActive() && !config.sideBySideMode && lastReportedPosition >= 0) {
+        if (isCompanionPageSkipEnabled() && lastReportedPosition >= 0) {
             val delta = position - lastReportedPosition
             if (delta == 1 || delta == -1) {
                 val currentItem = adapter.items.getOrNull(position)
@@ -256,6 +423,9 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
                 else -> true
             }
             currentPage = page
+            activity.panelReadingController.onVisiblePagesChanged(
+                currentReaderPages().map { it.panelPageKey() },
+            )
             when (page) {
                 is ReaderPage -> {
                     onReaderPageSelected(page, allowPreload, forward)
@@ -312,6 +482,9 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
 
         // Notify holder of page change
         getPageHolder(page)?.onPageSelected(forward)
+        getPageHolder(page)?.post {
+            focusActivePanel(page)
+        }
 
         // Skip preload on inserts it causes unwanted page jumping
         if (page is InsertPage) {
@@ -437,7 +610,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
 
     // Returns 2 when companion page is active (skip shown on secondary), 1 otherwise
     private fun companionPageStep(direction: Int): Int {
-        if (!activity.isCompanionPageActive() || config.sideBySideMode) return 1
+        if (!isCompanionPageSkipEnabled()) return 1
         val nextItem = adapter.items.getOrNull(pager.currentItem + direction)
         if (nextItem is ChapterTransition) return 1
         val targetItem = adapter.items.getOrNull(pager.currentItem + direction * 2)
@@ -445,10 +618,30 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
         return 2
     }
 
+    private fun isCompanionPageSkipEnabled(): Boolean {
+        return activity.isCompanionPageActive() &&
+            !config.sideBySideMode &&
+            !isPanelMapActive()
+    }
+
+    private fun isPanelMapActive(): Boolean {
+        if (!activity.readerPreferences.panelReadingPaged().get()) return false
+
+        val state = activity.panelReadingController.state.value
+        if (state.activePanel == null) return false
+
+        return currentReaderPages().any { it.matchesPanelKey(state.key) }
+    }
+
     /**
      * Tells this viewer to move to the next page/pair.
      */
     override fun moveToNext(): Boolean {
+        if (moveToNextPanel(::moveToNextPageOrPan, activity::loadNextChapter)) return true
+        return moveToNextPageOrPan()
+    }
+
+    private fun moveToNextPageOrPan(): Boolean {
         return if (pager.currentItem != adapter.count - 1) {
             val pair = adapter.items.getOrNull(pager.currentItem) as? ReaderItemPair
             val firstHolder = (pair?.first as? ReaderPage)?.let(::getPageHolder)
@@ -472,6 +665,11 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
      * Tells this viewer to move to the previous page/pair.
      */
     override fun moveToPrevious(): Boolean {
+        if (moveToPreviousPanel(::moveToPreviousPageOrPan, activity::loadPreviousChapter)) return true
+        return moveToPreviousPageOrPan()
+    }
+
+    private fun moveToPreviousPageOrPan(): Boolean {
         return if (pager.currentItem != 0) {
             val pair = adapter.items.getOrNull(pager.currentItem) as? ReaderItemPair
             val firstHolder = (pair?.first as? ReaderPage)?.let(::getPageHolder)
@@ -508,47 +706,27 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
     /**
      * Moves to the page at the right.
      */
-    fun moveRight(): Boolean {
-        return if (pager.currentItem != adapter.count - 1) {
-            val pair = adapter.items.getOrNull(pager.currentItem) as? ReaderItemPair
-            val firstHolder = (pair?.first as? ReaderPage)?.let(::getPageHolder)
-            val secondHolder = (pair?.second as? ReaderPage)?.let(::getPageHolder)
-
-            if (config.navigateToPan && (firstHolder?.canPanRight() == true || secondHolder?.canPanRight() == true)) {
-                if (firstHolder?.canPanRight() == true) firstHolder.panRight()
-                else secondHolder?.panRight()
-            } else {
-                val step = companionPageStep(1)
-                val target = (pager.currentItem + step).coerceAtMost(adapter.count - 1)
-                pager.setCurrentItem(target, config.usePageTransitions)
-            }
-            true
-        } else {
-            false
+    fun moveRight(onFallbackUnavailable: (() -> Unit)? = null): Boolean {
+        if (this is R2LPagerViewer) {
+            if (moveToPreviousPanel(::moveToNextPageOrPan, onFallbackUnavailable)) return true
+        } else if (moveToNextPanel(::moveToNextPageOrPan, onFallbackUnavailable)) {
+            return true
         }
+
+        return moveToNextPageOrPan()
     }
 
     /**
      * Moves to the page at the left.
      */
-    fun moveLeft(): Boolean {
-        return if (pager.currentItem != 0) {
-            val pair = adapter.items.getOrNull(pager.currentItem) as? ReaderItemPair
-            val firstHolder = (pair?.first as? ReaderPage)?.let(::getPageHolder)
-            val secondHolder = (pair?.second as? ReaderPage)?.let(::getPageHolder)
-
-            if (config.navigateToPan && (firstHolder?.canPanLeft() == true || secondHolder?.canPanLeft() == true)) {
-                if (secondHolder?.canPanLeft() == true) secondHolder.panLeft()
-                else firstHolder?.panLeft()
-            } else {
-                val step = companionPageStep(-1)
-                val target = (pager.currentItem - step).coerceAtLeast(0)
-                pager.setCurrentItem(target, config.usePageTransitions)
-            }
-            true
-        } else {
-            false
+    fun moveLeft(onFallbackUnavailable: (() -> Unit)? = null): Boolean {
+        if (this is R2LPagerViewer) {
+            if (moveToNextPanel(::moveToPreviousPageOrPan, onFallbackUnavailable)) return true
+        } else if (moveToPreviousPanel(::moveToPreviousPageOrPan, onFallbackUnavailable)) {
+            return true
         }
+
+        return moveToPreviousPageOrPan()
     }
 
     /**
@@ -567,14 +745,17 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
 
     private var pendingRefresh: Runnable? = null
 
-    // Main-thread only: set by sideBySideModeChangedListener, read by refreshAdapterInternal
+    // Main-thread only: set by configuration listeners, read by refreshAdapterInternal.
     private var needsFullAdapterReset = false
 
     /**
      * Resets the adapter in order to recreate all the views. Used when a image configuration is
      * changed. Debounced so rapid successive calls (e.g. during span/unspan) are coalesced.
      */
-    internal fun refreshAdapter() {
+    internal fun refreshAdapter(forceFullReset: Boolean = false) {
+        if (forceFullReset) {
+            needsFullAdapterReset = true
+        }
         pendingRefresh?.let { pager.removeCallbacks(it) }
         val runnable = Runnable {
             pendingRefresh = null
@@ -587,20 +768,20 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
     private fun refreshAdapterInternal() {
         lastReportedPosition = -1
         val currentItem = (currentPage as? ReaderItemPair)?.first ?: currentPage
+        val wasTransition = adapter.items.getOrNull(pager.currentItem) is ChapterTransition
 
         adapter.refresh()
+        activity.viewModel.state.value.viewerChapters?.let {
+            adapter.setChapters(it, wasTransition)
+        } ?: run {
+            adapter.notifyDataSetChanged()
+        }
+
         if (needsFullAdapterReset) {
             // Mode changed -- full reset required to rebuild view cache
             pager.adapter = null
             pager.adapter = adapter
             needsFullAdapterReset = false
-        } else {
-            adapter.notifyDataSetChanged()
-        }
-
-        activity.viewModel.state.value.viewerChapters?.let {
-            val wasTransition = adapter.items.getOrNull(pager.currentItem) is ChapterTransition
-            adapter.setChapters(it, wasTransition)
         }
 
         if (currentItem != null) {
@@ -740,3 +921,5 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
         holder?.resetZoom()
     }
 }
+
+private const val PANEL_DETECTION_GRACE_MS = 750L

@@ -205,17 +205,6 @@
             app:tint="@android:color/white" />
 
         <ImageButton
-            android:id="@+id/btn_chapters"
-            android:layout_width="0dp"
-            android:layout_height="56dp"
-            android:layout_weight="1"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Chapters"
-            android:src="@drawable/ic_list_24dp"
-            android:tint="@android:color/white"
-            app:tint="@android:color/white" />
-
-        <ImageButton
             android:id="@+id/btn_next_chapter"
             android:layout_width="0dp"
             android:layout_height="56dp"

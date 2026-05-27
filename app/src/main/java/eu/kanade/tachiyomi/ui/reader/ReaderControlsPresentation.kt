@@ -123,7 +123,6 @@ class ReaderControlsPresentation(
         val btnPrevChapter = dashboard.findViewById<ImageButton>(R.id.btn_prev_chapter)
         val btnNextChapter = dashboard.findViewById<ImageButton>(R.id.btn_next_chapter)
         val btnSettings = dashboard.findViewById<ImageButton>(R.id.btn_reader_settings)
-        val btnChapters = dashboard.findViewById<ImageButton>(R.id.btn_chapters)
         val btnDisplayMode = dashboard.findViewById<ImageButton>(R.id.btn_display_mode)
         val btnBookMode = dashboard.findViewById<ImageButton>(R.id.btn_book_mode)
         val touchpadArea = dashboard.findViewById<View>(R.id.touchpad_area)
@@ -229,7 +228,6 @@ class ReaderControlsPresentation(
         btnPrevChapter.setOnClickListener { activity.loadPreviousChapter() }
         btnNextChapter.setOnClickListener { activity.loadNextChapter() }
         btnSettings.setOnClickListener { activity.viewModel.openSettingsDialog() }
-        btnChapters.setOnClickListener { activity.openMangaScreen() }
         btnDisplayMode.setOnClickListener { activity.viewModel.openReadingModeSelectDialog() }
 
         btnBookMode.setOnClickListener {
