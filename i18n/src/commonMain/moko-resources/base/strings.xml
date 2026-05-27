@@ -489,6 +489,16 @@
     <string name="scale_type_original_size">Original size</string>
     <string name="scale_type_smart_fit">Smart fit</string>
     <string name="pref_navigate_pan">Pan wide images</string>
+    <string name="pref_guided_reading">Guided reading</string>
+    <string name="pref_panel_reading">Enable guided reading</string>
+    <string name="pref_panel_transition_duration">Transition speed</string>
+    <string name="pref_panel_transition_instant">Instant</string>
+    <string name="pref_panel_primary_overlay">Highlight focused panel on main screen</string>
+    <string name="pref_panel_focus_effect">Panel backdrop</string>
+    <string name="pref_panel_focus_effect_darken">Darken</string>
+    <string name="pref_panel_focus_strength">Backdrop strength</string>
+    <string name="panel_indicator">Panel %1$d/%2$d</string>
+    <string name="panel_detecting">Preparing guided reading...</string>
     <string name="pref_landscape_zoom">Automatically zoom into wide images</string>
     <string name="pref_zoom_start">Zoom start position</string>
     <string name="zoom_start_automatic">Automatic</string>
@@ -689,6 +699,7 @@
     <string name="pref_dual_screen_mode">Enable Dual-screen Mode</string>
     <string name="pref_dual_screen_mode_summary">Show reader content or controls on secondary display when available</string>
     <string name="action_dual_screen_mode">Dual-screen Mode</string>
+    <string name="action_panel_reading">Guided reading</string>
     <string name="pref_swap_presentation_rotation">Swap presentation rotation</string>
     <string name="pref_swap_presentation_rotation_summary">Rotates the secondary display by 180 degrees</string>
     <string name="pref_secondary_display_id">Secondary display ID</string>

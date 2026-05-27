@@ -10,6 +10,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import eu.kanade.domain.manga.model.readerOrientation
 import eu.kanade.domain.manga.model.readingMode
+import eu.kanade.tachiyomi.ui.reader.panel.PanelFocusEffect
+import eu.kanade.tachiyomi.ui.reader.panel.PanelReadingSettings
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsScreenModel
@@ -110,6 +112,67 @@ private fun ColumnScope.PagerViewerSettings(screenModel: ReaderSettingsScreenMod
         label = stringResource(MR.strings.pref_navigate_pan),
         pref = screenModel.preferences.navigateToPan(),
     )
+
+    HeadingItem(MR.strings.pref_guided_reading)
+
+    val panelReadingEnabled by screenModel.preferences.panelReadingPaged().collectAsState()
+    CheckboxItem(
+        label = stringResource(MR.strings.pref_panel_reading),
+        pref = screenModel.preferences.panelReadingPaged(),
+    )
+
+    if (panelReadingEnabled) {
+        val panelTransitionMillis by screenModel.preferences.panelReadingTransitionMillis().collectAsState()
+        SliderItem(
+            label = stringResource(MR.strings.pref_panel_transition_duration),
+            value = panelTransitionMillis,
+            valueRange = PanelReadingSettings.PANEL_TRANSITION_MIN_MILLIS..PanelReadingSettings.PANEL_TRANSITION_MAX_MILLIS,
+            steps = (PanelReadingSettings.PANEL_TRANSITION_MAX_MILLIS / PanelReadingSettings.PANEL_TRANSITION_STEP_MILLIS) - 1,
+            valueString = if (panelTransitionMillis == 0) {
+                stringResource(MR.strings.pref_panel_transition_instant)
+            } else {
+                "${panelTransitionMillis}ms"
+            },
+            onChange = {
+                screenModel.preferences.panelReadingTransitionMillis()
+                    .set(PanelReadingSettings.normalizeTransitionMillis(it))
+            },
+        )
+
+        CheckboxItem(
+            label = stringResource(MR.strings.pref_panel_primary_overlay),
+            pref = screenModel.preferences.panelReadingPrimaryOverlay(),
+        )
+
+        val panelFocusEffect by screenModel.preferences.panelReadingFocusEffect().collectAsState()
+        SettingsChipRow(MR.strings.pref_panel_focus_effect) {
+            listOf(
+                PanelFocusEffect.OFF to MR.strings.off,
+                PanelFocusEffect.DARKEN to MR.strings.pref_panel_focus_effect_darken,
+            ).map { (effect, title) ->
+                FilterChip(
+                    selected = panelFocusEffect == effect,
+                    onClick = { screenModel.preferences.panelReadingFocusEffect().set(effect) },
+                    label = { Text(stringResource(title)) },
+                )
+            }
+        }
+
+        if (panelFocusEffect != PanelFocusEffect.OFF) {
+            val panelFocusStrength by screenModel.preferences.panelReadingFocusStrength().collectAsState()
+            SliderItem(
+                label = stringResource(MR.strings.pref_panel_focus_strength),
+                value = panelFocusStrength,
+                valueRange = PanelReadingSettings.PANEL_FOCUS_STRENGTH_MIN..PanelReadingSettings.PANEL_FOCUS_STRENGTH_MAX,
+                steps = 19,
+                valueString = "$panelFocusStrength%",
+                onChange = {
+                    screenModel.preferences.panelReadingFocusStrength()
+                        .set(PanelReadingSettings.normalizeFocusStrength(it))
+                },
+            )
+        }
+    }
 
     val dualPageSplitPaged by screenModel.preferences.dualPageSplitPaged().collectAsState()
     CheckboxItem(

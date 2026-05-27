@@ -67,6 +67,8 @@ fun ReaderAppBars(
     onClickSettings: () -> Unit,
     companionPageEnabled: Boolean = false,
     onClickDualScreenMode: (() -> Unit)? = null,
+    panelReadingEnabled: Boolean = false,
+    onClickPanelReading: (() -> Unit)? = null,
 ) {
     val isRtl = remember(viewer, readingMode) {
         viewer is R2LPagerViewer || (viewer == null && readingMode == ReadingMode.RIGHT_TO_LEFT)
@@ -133,6 +135,8 @@ fun ReaderAppBars(
                     onClickSettings = onClickSettings,
                     companionPageEnabled = companionPageEnabled,
                     onClickDualScreenMode = onClickDualScreenMode,
+                    panelReadingEnabled = panelReadingEnabled,
+                    onClickPanelReading = onClickPanelReading,
                 )
             }
         }

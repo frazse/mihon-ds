@@ -3,6 +3,8 @@ package eu.kanade.tachiyomi.ui.reader.setting
 import android.os.Build
 import androidx.compose.ui.graphics.BlendMode
 import dev.icerock.moko.resources.StringResource
+import eu.kanade.tachiyomi.ui.reader.panel.PanelFocusEffect
+import eu.kanade.tachiyomi.ui.reader.panel.PanelReadingSettings
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getEnum
 import tachiyomi.i18n.MR
@@ -58,6 +60,25 @@ class ReaderPreferences(
     fun cropBorders() = preferenceStore.getBoolean("crop_borders", false)
 
     fun navigateToPan() = preferenceStore.getBoolean("navigate_pan", true)
+
+    fun panelReadingPaged() = preferenceStore.getBoolean("pref_panel_reading_paged", false)
+
+    fun panelReadingTransitionMillis() = preferenceStore.getInt(
+        "pref_panel_reading_transition_millis",
+        PanelReadingSettings.PANEL_TRANSITION_DEFAULT_MILLIS,
+    )
+
+    fun panelReadingFocusEffect() = preferenceStore.getEnum(
+        "pref_panel_reading_focus_effect",
+        PanelFocusEffect.DARKEN,
+    )
+
+    fun panelReadingFocusStrength() = preferenceStore.getInt(
+        "pref_panel_reading_focus_strength",
+        PanelReadingSettings.PANEL_FOCUS_STRENGTH_DEFAULT,
+    )
+
+    fun panelReadingPrimaryOverlay() = preferenceStore.getBoolean("pref_panel_reading_primary_overlay", true)
 
     fun landscapeZoom() = preferenceStore.getBoolean("landscape_zoom", true)
 

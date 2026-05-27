@@ -6,6 +6,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,6 +30,8 @@ fun ReaderBottomBar(
     onClickSettings: () -> Unit,
     companionPageEnabled: Boolean = false,
     onClickDualScreenMode: (() -> Unit)? = null,
+    panelReadingEnabled: Boolean = false,
+    onClickPanelReading: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -62,6 +66,16 @@ fun ReaderBottomBar(
                 Icon(
                     painter = painterResource(R.drawable.ic_book_open_24dp),
                     contentDescription = stringResource(MR.strings.action_dual_screen_mode),
+                )
+            }
+        }
+
+        if (onClickPanelReading != null) {
+            IconButton(onClick = onClickPanelReading) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_glasses_24dp),
+                    contentDescription = stringResource(MR.strings.action_panel_reading),
+                    tint = if (panelReadingEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current,
                 )
             }
         }
