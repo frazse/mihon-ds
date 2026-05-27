@@ -18,6 +18,7 @@ A specialized fork of [Mihon](https://mihon.app) optimized for devices with seco
 *   **Dual Screen Support:** Optimized reading experience that spans across two physical displays.
 *   **Side-by-Side Installation:** Uses a unique package name (`app.mihon.ds`) so it can be installed alongside the official Mihon app.
 *   **Webtoon Spanning:** Automatically synchronizes scrolling across both screens for a continuous webtoon reading experience.
+*   **Guided Reading:** Detects panels in paged manga and comics for panel-by-panel navigation with dual-screen context.
 *   **Customizable Setup:** New onboarding steps to select the target Display ID and rotation overrides.
 *   **Privacy Focused:** Telemetry and Crashlytics are disabled by default.
 
