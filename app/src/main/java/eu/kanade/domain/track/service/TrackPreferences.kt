@@ -42,4 +42,6 @@ class TrackPreferences(
         "pref_auto_update_manga_on_mark_read",
         AutoTrackState.ALWAYS,
     )
+
+    fun autoSyncReadChapters() = preferenceStore.getBoolean("pref_auto_sync_read_chapters_key", false)
 }

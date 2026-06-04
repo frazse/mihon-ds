@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.manga
 
+import android.app.Application
 import android.content.Context
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -27,6 +28,7 @@ import eu.kanade.domain.track.interactor.AddTracks
 import eu.kanade.domain.track.interactor.RefreshTracks
 import eu.kanade.domain.track.interactor.TrackChapter
 import eu.kanade.domain.track.model.AutoTrackState
+import eu.kanade.domain.track.model.toDomainTrack
 import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.presentation.manga.DownloadAction
 import eu.kanade.presentation.manga.components.ChapterDownloadAction
@@ -99,6 +101,7 @@ class MangaScreenModel(
     private val libraryPreferences: LibraryPreferences = Injekt.get(),
     private val trackPreferences: TrackPreferences = Injekt.get(),
     readerPreferences: ReaderPreferences = Injekt.get(),
+
     private val trackerManager: TrackerManager = Injekt.get(),
     private val trackChapter: TrackChapter = Injekt.get(),
     private val downloadManager: DownloadManager = Injekt.get(),
@@ -240,6 +243,7 @@ class MangaScreenModel(
             // Fetch info-chapters when needed
             if (screenModelScope.isActive) {
                 val fetchFromSourceTasks = listOf(
+                    async { syncTrackers() },
                     async { if (needRefreshInfo) fetchMangaFromSource() },
                     async { if (needRefreshChapter) fetchChaptersFromSource() },
                 )
@@ -251,10 +255,35 @@ class MangaScreenModel(
         }
     }
 
+    // KMK -->
+    private suspend fun syncTrackers() {
+        if (!trackPreferences.autoSyncReadChapters().get()) return
+
+        val refreshTracks = Injekt.get<RefreshTracks>()
+        refreshTracks.await(mangaId)
+            .filter { it.first != null }
+            .forEach { (track, e) ->
+                logcat(LogPriority.ERROR, e) {
+                    "Failed to refresh track data mangaId=$mangaId for service ${track!!.id}"
+                }
+                withUIContext {
+                    context.toast(
+                        context.stringResource(
+                            MR.strings.track_error,
+                            track!!.name,
+                            e.message ?: "",
+                        ),
+                    )
+                }
+            }
+    }
+    // KMK <--
+
     fun fetchAllFromSource(manualFetch: Boolean = true) {
         screenModelScope.launch {
             updateSuccessState { it.copy(isRefreshingData = true) }
             val fetchFromSourceTasks = listOf(
+                async { syncTrackers() },
                 async { fetchMangaFromSource(manualFetch) },
                 async { fetchChaptersFromSource(manualFetch) },
             )
@@ -606,6 +635,11 @@ class MangaScreenModel(
         when (swipeAction) {
             LibraryPreferences.ChapterSwipeAction.ToggleRead -> {
                 markChaptersRead(listOf(chapter), !chapter.read)
+                // KMK -->
+                if (!chapter.read) {
+                    updateTrackChapterMarkedAsRead(chapter)
+                }
+                // KMK <--
             }
             LibraryPreferences.ChapterSwipeAction.ToggleBookmark -> {
                 bookmarkChapters(listOf(chapter), !chapter.bookmark)
@@ -784,6 +818,13 @@ class MangaScreenModel(
                 trackChapter.await(context, mangaId, maxChapterNumber)
             }
         }
+        // KMK -->
+        if (read) {
+            chapters.maxByOrNull { it.chapterNumber }
+                ?.also { updateTrackChapterMarkedAsRead(it) }
+        }
+        // KMK <--
+        toggleAllSelection(false)
     }
 
     private suspend fun refreshTrackers(
@@ -806,6 +847,23 @@ class MangaScreenModel(
                 }
             }
     }
+
+    // KMK -->
+    /**
+     * Starts the service that updates the chapter marked as read in sync services. This operation
+     * will run in a background thread and errors are ignored.
+     */
+    private fun updateTrackChapterMarkedAsRead(chapter: Chapter) {
+        if (trackPreferences.autoUpdateTrackOnMarkRead().get() == AutoTrackState.NEVER) return
+
+        val manga = manga ?: return
+        val context = Injekt.get<Application>()
+
+        screenModelScope.launchNonCancellable {
+            trackChapter.await(context, manga.id, chapter.chapterNumber)
+        }
+    }
+    // KMK <--
 
     /**
      * Downloads the given list of chapters with the manager.

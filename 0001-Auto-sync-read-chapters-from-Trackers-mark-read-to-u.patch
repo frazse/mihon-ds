@@ -1,0 +1,232 @@
+From 61b68b884d1e2c8d1790e960970134c1dabf88fe Mon Sep 17 00:00:00 2001
+From: "Cuong M. Tran" <cuongtran.tm@gmail.com>
+Date: Wed, 22 May 2024 17:54:22 +0700
+Subject: [PATCH] Auto sync read chapters from Trackers & mark read to update
+ (#28)
+
+* Mark chapter(s) as read will update Tracking
+
+* Fix: sync tracking 2 ways for all trackers
+
+* automatically sync read chapters from Trackers
+---
+ .../SyncChapterProgressWithTrack.kt           | 20 +++++--
+ .../domain/track/service/TrackPreferences.kt  |  2 +
+ .../settings/screen/SettingsTrackingScreen.kt |  4 ++
+ .../tachiyomi/ui/manga/MangaScreenModel.kt    | 58 +++++++++++++++++++
+ .../moko-resources/base/strings.xml           |  1 +
+ 5 files changed, 79 insertions(+), 6 deletions(-)
+
+diff --git a/app/src/main/java/eu/kanade/domain/track/interactor/SyncChapterProgressWithTrack.kt b/app/src/main/java/eu/kanade/domain/track/interactor/SyncChapterProgressWithTrack.kt
+index 0c95640..0731ce5 100644
+--- a/app/src/main/java/eu/kanade/domain/track/interactor/SyncChapterProgressWithTrack.kt
++++ b/app/src/main/java/eu/kanade/domain/track/interactor/SyncChapterProgressWithTrack.kt
+@@ -1,7 +1,6 @@
+ package eu.kanade.domain.track.interactor
+ 
+ import eu.kanade.domain.track.model.toDbTrack
+-import eu.kanade.tachiyomi.data.track.EnhancedTracker
+ import eu.kanade.tachiyomi.data.track.Tracker
+ import logcat.LogPriority
+ import tachiyomi.core.common.util.system.logcat
+@@ -23,14 +22,18 @@ class SyncChapterProgressWithTrack(
+         remoteTrack: Track,
+         tracker: Tracker,
+     ) {
+-        if (tracker !is EnhancedTracker) {
+-            return
+-        }
++        // KKM -->
++        // if (tracker !is EnhancedTracker) {
++        //     return
++        // }
++        // <-- KKM
+ 
++        // Current chapters in database
+         val sortedChapters = getChaptersByMangaId.await(mangaId)
+             .sortedBy { it.chapterNumber }
+             .filter { it.isRecognizedNumber }
+ 
++        // Chapters to update to follow tracker
+         val chapterUpdates = sortedChapters
+             .filter { chapter -> chapter.chapterNumber <= remoteTrack.lastChapterRead && !chapter.read }
+             .map { it.copy(read = true).toChapterUpdate() }
+@@ -41,9 +44,14 @@ class SyncChapterProgressWithTrack(
+         val updatedTrack = remoteTrack.copy(lastChapterRead = lastRead)
+ 
+         try {
+-            tracker.update(updatedTrack.toDbTrack())
++            // Update Tracker to localLastRead if needed
++            if (updatedTrack.lastChapterRead > remoteTrack.lastChapterRead) {
++                tracker.update(updatedTrack.toDbTrack())
++                // update Track in database
++                insertTrack.await(updatedTrack)
++            }
++            // Update local chapters following Tracker
+             updateChapter.awaitAll(chapterUpdates)
+-            insertTrack.await(updatedTrack)
+         } catch (e: Throwable) {
+             logcat(LogPriority.WARN, e)
+         }
+diff --git a/app/src/main/java/eu/kanade/domain/track/service/TrackPreferences.kt b/app/src/main/java/eu/kanade/domain/track/service/TrackPreferences.kt
+index d07bc71..e20b193 100644
+--- a/app/src/main/java/eu/kanade/domain/track/service/TrackPreferences.kt
++++ b/app/src/main/java/eu/kanade/domain/track/service/TrackPreferences.kt
+@@ -42,4 +42,6 @@ class TrackPreferences(
+         "pref_auto_update_manga_on_mark_read",
+         AutoTrackState.ALWAYS,
+     )
++
++    fun autoSyncReadChapters() = preferenceStore.getBoolean("pref_auto_sync_read_chapters_key", false)
+ }
+diff --git a/app/src/main/java/eu/kanade/presentation/more/settings/screen/SettingsTrackingScreen.kt b/app/src/main/java/eu/kanade/presentation/more/settings/screen/SettingsTrackingScreen.kt
+index f2d4bb5..212cade 100644
+--- a/app/src/main/java/eu/kanade/presentation/more/settings/screen/SettingsTrackingScreen.kt
++++ b/app/src/main/java/eu/kanade/presentation/more/settings/screen/SettingsTrackingScreen.kt
+@@ -138,6 +138,10 @@ object SettingsTrackingScreen : SearchableSettings {
+                     .toPersistentMap(),
+                 title = stringResource(MR.strings.pref_auto_update_manga_on_mark_read),
+             ),
++            Preference.PreferenceItem.SwitchPreference(
++                preference = trackPreferences.autoSyncReadChapters(),
++                title = stringResource(MR.strings.pref_auto_sync_read_chapters),
++            ),
+             Preference.PreferenceGroup(
+                 title = stringResource(MR.strings.services),
+                 preferenceItems = persistentListOf(
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreenModel.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreenModel.kt
+index eb3db38..0e2dd88 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreenModel.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreenModel.kt
+@@ -1,5 +1,6 @@
+ package eu.kanade.tachiyomi.ui.manga
+ 
++import android.app.Application
+ import android.content.Context
+ import androidx.compose.material3.SnackbarDuration
+ import androidx.compose.material3.SnackbarHostState
+@@ -27,6 +28,7 @@ import eu.kanade.domain.track.interactor.AddTracks
+ import eu.kanade.domain.track.interactor.RefreshTracks
+ import eu.kanade.domain.track.interactor.TrackChapter
+ import eu.kanade.domain.track.model.AutoTrackState
++import eu.kanade.domain.track.model.toDomainTrack
+ import eu.kanade.domain.track.service.TrackPreferences
+ import eu.kanade.presentation.manga.DownloadAction
+ import eu.kanade.presentation.manga.components.ChapterDownloadAction
+@@ -99,6 +101,7 @@ class MangaScreenModel(
+     private val libraryPreferences: LibraryPreferences = Injekt.get(),
+     private val trackPreferences: TrackPreferences = Injekt.get(),
+     readerPreferences: ReaderPreferences = Injekt.get(),
++
+     private val trackerManager: TrackerManager = Injekt.get(),
+     private val trackChapter: TrackChapter = Injekt.get(),
+     private val downloadManager: DownloadManager = Injekt.get(),
+@@ -240,6 +243,7 @@ class MangaScreenModel(
+             // Fetch info-chapters when needed
+             if (screenModelScope.isActive) {
+                 val fetchFromSourceTasks = listOf(
++                    async { syncTrackers() },
+                     async { if (needRefreshInfo) fetchMangaFromSource() },
+                     async { if (needRefreshChapter) fetchChaptersFromSource() },
+                 )
+@@ -251,10 +255,35 @@ class MangaScreenModel(
+         }
+     }
+ 
++    // KMK -->
++    private suspend fun syncTrackers() {
++        if (!trackPreferences.autoSyncReadChapters().get()) return
++
++        val refreshTracks = Injekt.get<RefreshTracks>()
++        refreshTracks.await(mangaId)
++            .filter { it.first != null }
++            .forEach { (track, e) ->
++                logcat(LogPriority.ERROR, e) {
++                    "Failed to refresh track data mangaId=$mangaId for service ${track!!.id}"
++                }
++                withUIContext {
++                    context.toast(
++                        context.stringResource(
++                            MR.strings.track_error,
++                            track!!.name,
++                            e.message ?: "",
++                        ),
++                    )
++                }
++            }
++    }
++    // KMK <--
++
+     fun fetchAllFromSource(manualFetch: Boolean = true) {
+         screenModelScope.launch {
+             updateSuccessState { it.copy(isRefreshingData = true) }
+             val fetchFromSourceTasks = listOf(
++                async { syncTrackers() },
+                 async { fetchMangaFromSource(manualFetch) },
+                 async { fetchChaptersFromSource(manualFetch) },
+             )
+@@ -606,6 +635,11 @@ class MangaScreenModel(
+         when (swipeAction) {
+             LibraryPreferences.ChapterSwipeAction.ToggleRead -> {
+                 markChaptersRead(listOf(chapter), !chapter.read)
++                // KMK -->
++                if (!chapter.read) {
++                    updateTrackChapterMarkedAsRead(chapter)
++                }
++                // KMK <--
+             }
+             LibraryPreferences.ChapterSwipeAction.ToggleBookmark -> {
+                 bookmarkChapters(listOf(chapter), !chapter.bookmark)
+@@ -784,6 +818,13 @@ class MangaScreenModel(
+                 trackChapter.await(context, mangaId, maxChapterNumber)
+             }
+         }
++        // KMK -->
++        if (read) {
++            chapters.maxByOrNull { it.chapterNumber }
++                ?.also { updateTrackChapterMarkedAsRead(it) }
++        }
++        // KMK <--
++        toggleAllSelection(false)
+     }
+ 
+     private suspend fun refreshTrackers(
+@@ -807,6 +848,23 @@ class MangaScreenModel(
+             }
+     }
+ 
++    // KMK -->
++    /**
++     * Starts the service that updates the chapter marked as read in sync services. This operation
++     * will run in a background thread and errors are ignored.
++     */
++    private fun updateTrackChapterMarkedAsRead(chapter: Chapter) {
++        if (trackPreferences.autoUpdateTrackOnMarkRead().get() == AutoTrackState.NEVER) return
++
++        val manga = manga ?: return
++        val context = Injekt.get<Application>()
++
++        screenModelScope.launchNonCancellable {
++            trackChapter.await(context, manga.id, chapter.chapterNumber)
++        }
++    }
++    // KMK <--
++
+     /**
+      * Downloads the given list of chapters with the manager.
+      * @param chapters the list of chapters to download.
+diff --git a/i18n/src/commonMain/moko-resources/base/strings.xml b/i18n/src/commonMain/moko-resources/base/strings.xml
+index ac78cdd..16a6a78 100644
+--- a/i18n/src/commonMain/moko-resources/base/strings.xml
++++ b/i18n/src/commonMain/moko-resources/base/strings.xml
+@@ -565,6 +565,7 @@
+     <string name="tracking_guide">Tracking guide</string>
+     <string name="pref_auto_update_manga_sync">Update progress after reading</string>
+     <string name="pref_auto_update_manga_on_mark_read">Update progress when marked as read</string>
++    <string name="pref_auto_sync_read_chapters">Auto sync read chapters from Trackers</string>
+     <string name="services">Trackers</string>
+     <string name="tracking_info">One-way sync to update the chapter progress in external tracker services. Set up tracking for individual entries from their tracking button.</string>
+     <string name="enhanced_services">Enhanced trackers</string>
+-- 
+2.43.0
+
