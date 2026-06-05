@@ -9,8 +9,10 @@ class BackupCategory(
     @ProtoNumber(1) var name: String,
     @ProtoNumber(2) var order: Long = 0,
     @ProtoNumber(3) var id: Long = 0,
-    // @ProtoNumber(3) val updateInterval: Int = 0, 1.x value not used in 0.x
     @ProtoNumber(100) var flags: Long = 0,
+    @ProtoNumber(101) var uid: Long = 0,
+    @ProtoNumber(102) var version: Long = 0,
+    @ProtoNumber(103) var lastModifiedAt: Long = 0,
 ) {
     fun toCategory(id: Long) = Category(
         id = id,

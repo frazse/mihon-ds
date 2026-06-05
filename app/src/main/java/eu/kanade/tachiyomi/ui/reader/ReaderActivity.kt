@@ -163,7 +163,9 @@ class ReaderActivity : BaseActivity() {
             isEnabled = { isPanelReadingActive() },
             readingDirection = {
                 val mode = ReadingMode.fromPreference(viewModel.getMangaReadingMode(resolveDefault = true))
-                if (mode == ReadingMode.RIGHT_TO_LEFT) {
+                if (mode == ReadingMode.LEFT_TO_RIGHT) {
+                    PanelReadingDirection.RIGHT_TO_LEFT
+                } else if (mode == ReadingMode.RIGHT_TO_LEFT) {
                     PanelReadingDirection.RIGHT_TO_LEFT
                 } else {
                     PanelReadingDirection.LEFT_TO_RIGHT

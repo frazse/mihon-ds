@@ -15,6 +15,11 @@ data class BackupOptions(
     val extensionRepoSettings: Boolean = true,
     val sourceSettings: Boolean = true,
     val privateSettings: Boolean = false,
+
+    // SY -->
+    val customInfo: Boolean = true,
+    val savedSearches: Boolean = true,
+    // SY <--
 ) {
 
     fun asBooleanArray() = booleanArrayOf(
@@ -28,6 +33,11 @@ data class BackupOptions(
         extensionRepoSettings,
         sourceSettings,
         privateSettings,
+
+        // SY -->
+        customInfo,
+        savedSearches,
+        // SY <--
     )
 
     fun canCreate() = libraryEntries || categories || appSettings || extensionRepoSettings || sourceSettings
@@ -105,6 +115,11 @@ data class BackupOptions(
             extensionRepoSettings = array[7],
             sourceSettings = array[8],
             privateSettings = array[9],
+
+            // SY -->
+            customInfo = array.getOrElse(10) { true },
+            savedSearches = array.getOrElse(11) { true },
+            // SY <--
         )
     }
 

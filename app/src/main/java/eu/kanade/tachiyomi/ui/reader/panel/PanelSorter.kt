@@ -20,13 +20,19 @@ object PanelSorter {
         val rowTolerance = valid
             .map { it.height }
             .sorted()
-            .let { heights -> heights[heights.lastIndex / 2] * 0.5f }
+            .let { heights -> heights[heights.lastIndex / 2] * 0.75f }
             .coerceAtLeast(MIN_ROW_TOLERANCE)
 
         val rows = mutableListOf<MutableList<ReaderPanel>>()
         valid.forEach { panel ->
             val row = rows.firstOrNull { existing ->
-                abs(existing.averageCenterY() - panel.centerY) <= rowTolerance
+                // Primary: panels overlap vertically (share any vertical extent)
+                val rowTop = existing.minOf { it.bounds.top }
+                val rowBottom = existing.maxOf { it.bounds.bottom }
+                val verticalOverlap = panel.bounds.top < rowBottom && panel.bounds.bottom > rowTop
+                // Fallback: centers are within tolerance (catches staggered panels)
+                val centerClose = abs(existing.averageCenterY() - panel.centerY) <= rowTolerance
+                verticalOverlap || centerClose
             }
             if (row != null) {
                 row += panel
@@ -93,7 +99,7 @@ object PanelSorter {
 
     private const val MIN_PANEL_SIZE = 8f
     private const val MIN_ROW_TOLERANCE = 24f
-    private const val DUPLICATE_IOU_THRESHOLD = 0.72f
+    private const val DUPLICATE_IOU_THRESHOLD = 0.55f
     private const val CONTAINED_DUPLICATE_COVERAGE_THRESHOLD = 0.9f
     private const val CONTAINED_DUPLICATE_SIZE_RATIO_THRESHOLD = 0.65f
 }

@@ -12,7 +12,7 @@ object YoloPanelPostProcessor {
         detections: List<FloatArray>,
         transform: PanelModelTransform,
         confidenceThreshold: Float = 0.25f,
-        nmsIouThreshold: Float = 0.5f,
+        nmsIouThreshold: Float = 0.35f,
     ): List<ReaderPanel> {
         val candidates = detections
             .asSequence()

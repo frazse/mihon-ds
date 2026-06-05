@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.chapter.model.toDbChapter
+import eu.kanade.domain.sync.SyncPreferences
 import eu.kanade.domain.manga.interactor.SetMangaViewerFlags
 import eu.kanade.domain.manga.model.readerOrientation
 import eu.kanade.domain.manga.model.readingMode
@@ -19,6 +20,7 @@ import eu.kanade.tachiyomi.data.database.models.toDomainChapter
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.data.download.model.Download
+import eu.kanade.tachiyomi.data.sync.SyncDataJob
 import eu.kanade.tachiyomi.data.saver.Image
 import eu.kanade.tachiyomi.data.saver.ImageSaver
 import eu.kanade.tachiyomi.data.saver.Location
@@ -92,6 +94,7 @@ class ReaderViewModel @JvmOverloads constructor(
     private val basePreferences: BasePreferences = Injekt.get(),
     private val downloadPreferences: DownloadPreferences = Injekt.get(),
     private val trackPreferences: TrackPreferences = Injekt.get(),
+    private val syncPreferences: SyncPreferences = Injekt.get(),
     private val trackChapter: TrackChapter = Injekt.get(),
     private val getManga: GetManga = Injekt.get(),
     private val getChaptersByMangaId: GetChaptersByMangaId = Injekt.get(),
@@ -548,6 +551,12 @@ class ReaderViewModel @JvmOverloads constructor(
 
             if (readerChapter.pages?.lastIndex == pageIndex) {
                 updateChapterProgressOnComplete(readerChapter)
+
+                val isSyncEnabled = syncPreferences.isSyncEnabled()
+                val syncTriggerOpt = syncPreferences.getSyncTriggerOptions()
+                if (isSyncEnabled && syncTriggerOpt.syncOnChapterRead) {
+                    SyncDataJob.startNow(Injekt.get<Application>())
+                }
             }
 
             updateChapter.await(
@@ -557,6 +566,12 @@ class ReaderViewModel @JvmOverloads constructor(
                     lastPageRead = readerChapter.chapter.last_page_read.toLong(),
                 ),
             )
+
+            val isSyncEnabled = syncPreferences.isSyncEnabled()
+            val syncTriggerOpt = syncPreferences.getSyncTriggerOptions()
+            if (isSyncEnabled && syncTriggerOpt.syncOnChapterOpen && readerChapter.chapter.last_page_read == 0) {
+                SyncDataJob.startNow(Injekt.get<Application>())
+            }
         }
     }
 

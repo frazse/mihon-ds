@@ -1,8 +1,8 @@
 From 61b68b884d1e2c8d1790e960970134c1dabf88fe Mon Sep 17 00:00:00 2001
 From: "Cuong M. Tran" <cuongtran.tm@gmail.com>
 Date: Wed, 22 May 2024 17:54:22 +0700
-Subject: [PATCH] Auto sync read chapters from Trackers & mark read to update
- (#28)
+Subject: [PATCH 1/2] Auto sync read chapters from Trackers & mark read to
+ update (#28)
 
 * Mark chapter(s) as read will update Tracking
 

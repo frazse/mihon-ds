@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.net.toUri
 import eu.kanade.tachiyomi.data.backup.restore.BackupRestoreJob
+import eu.kanade.tachiyomi.data.sync.SyncDataJob
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.library.LibraryUpdateJob
 import eu.kanade.tachiyomi.data.updater.AppUpdateDownloadJob
@@ -70,6 +71,7 @@ class NotificationReceiver : BroadcastReceiver() {
                     "application/x-protobuf+gzip",
                 )
             ACTION_CANCEL_RESTORE -> cancelRestore(context)
+            ACTION_CANCEL_SYNC -> cancelSync(context)
             // Cancel library update and dismiss notification
             ACTION_CANCEL_LIBRARY_UPDATE -> cancelLibraryUpdate(context)
             // Start downloading app update
@@ -169,6 +171,10 @@ class NotificationReceiver : BroadcastReceiver() {
         BackupRestoreJob.stop(context)
     }
 
+    private fun cancelSync(context: Context) {
+        SyncDataJob.stop(context)
+    }
+
     /**
      * Method called when user wants to stop a library update
      *
@@ -238,6 +244,7 @@ class NotificationReceiver : BroadcastReceiver() {
         private const val ACTION_SHARE_BACKUP = "$ID.$NAME.SEND_BACKUP"
 
         private const val ACTION_CANCEL_RESTORE = "$ID.$NAME.CANCEL_RESTORE"
+        private const val ACTION_CANCEL_SYNC = "$ID.$NAME.CANCEL_SYNC"
 
         private const val ACTION_CANCEL_LIBRARY_UPDATE = "$ID.$NAME.CANCEL_LIBRARY_UPDATE"
 
@@ -627,6 +634,19 @@ class NotificationReceiver : BroadcastReceiver() {
         internal fun cancelRestorePendingBroadcast(context: Context, notificationId: Int): PendingIntent {
             val intent = Intent(context, NotificationReceiver::class.java).apply {
                 action = ACTION_CANCEL_RESTORE
+                putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+            }
+            return PendingIntent.getBroadcast(
+                context,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }
+
+        internal fun cancelSyncPendingBroadcast(context: Context, notificationId: Int): PendingIntent {
+            val intent = Intent(context, NotificationReceiver::class.java).apply {
+                action = ACTION_CANCEL_SYNC
                 putExtra(EXTRA_NOTIFICATION_ID, notificationId)
             }
             return PendingIntent.getBroadcast(

@@ -46,18 +46,24 @@ import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.screen.data.CreateBackupScreen
 import eu.kanade.presentation.more.settings.screen.data.RestoreBackupScreen
 import eu.kanade.presentation.more.settings.screen.data.StorageInfo
+import eu.kanade.presentation.more.settings.screen.data.SyncSettingsSelector
+import eu.kanade.presentation.more.settings.screen.data.SyncTriggerOptionsScreen
 import eu.kanade.presentation.more.settings.widget.BasePreferenceWidget
 import eu.kanade.presentation.more.settings.widget.PrefsHorizontalPadding
 import eu.kanade.presentation.util.relativeTimeSpanString
 import eu.kanade.tachiyomi.data.backup.create.BackupCreateJob
 import eu.kanade.tachiyomi.data.backup.restore.BackupRestoreJob
 import eu.kanade.tachiyomi.data.cache.ChapterCache
+import eu.kanade.tachiyomi.data.sync.SyncDataJob
+import eu.kanade.tachiyomi.data.sync.SyncManager
+import eu.kanade.domain.sync.SyncPreferences
 import eu.kanade.tachiyomi.data.export.LibraryExporter
 import eu.kanade.tachiyomi.data.export.LibraryExporter.ExportOptions
 import eu.kanade.tachiyomi.util.system.DeviceUtil
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import logcat.LogPriority
@@ -102,12 +108,15 @@ object SettingsDataScreen : SearchableSettings {
     override fun getPreferences(): List<Preference> {
         val backupPreferences = Injekt.get<BackupPreferences>()
         val storagePreferences = Injekt.get<StoragePreferences>()
+        val syncPreferences = Injekt.get<SyncPreferences>()
+        val syncService by syncPreferences.syncService.collectAsState()
 
         return persistentListOf(
             getStorageLocationPref(storagePreferences = storagePreferences),
             Preference.PreferenceItem.InfoPreference(stringResource(MR.strings.pref_storage_location_info)),
 
             getBackupAndRestoreGroup(backupPreferences = backupPreferences),
+            getSyncGroup(syncPreferences = syncPreferences, syncService = syncService),
             getDataGroup(),
             getExportGroup(),
         )
@@ -274,6 +283,70 @@ object SettingsDataScreen : SearchableSettings {
                         stringResource(MR.strings.last_auto_backup_info, relativeTimeSpanString(lastAutoBackup)),
                 ),
             ),
+        )
+    }
+
+    @Composable
+    private fun getSyncGroup(syncPreferences: SyncPreferences, syncService: Int): Preference.PreferenceGroup {
+        val context = LocalContext.current
+        val navigator = LocalNavigator.currentOrThrow
+        val syncServiceType = SyncManager.SyncService.fromInt(syncService)
+        val lastSync by syncPreferences.lastSyncTimestamp.collectAsState()
+
+        return Preference.PreferenceGroup(
+            title = stringResource(MR.strings.pref_sync_service_category),
+            preferenceItems = (
+                persistentListOf(
+                    Preference.PreferenceItem.ListPreference(
+                        preference = syncPreferences.syncService,
+                        title = stringResource(MR.strings.pref_sync_service),
+                        entries = persistentMapOf(
+                            SyncManager.SyncService.NONE.value to stringResource(MR.strings.off),
+                            SyncManager.SyncService.SYNCYOMI.value to stringResource(MR.strings.syncyomi),
+                        ),
+                        onValueChanged = { true },
+                    ),
+                ) + if (syncServiceType == SyncManager.SyncService.SYNCYOMI) {
+                    persistentListOf(
+                        Preference.PreferenceItem.EditTextPreference(
+                            preference = syncPreferences.clientHost,
+                            title = stringResource(MR.strings.pref_sync_host),
+                            subtitle = stringResource(MR.strings.pref_sync_host_summ),
+                        ),
+                        Preference.PreferenceItem.EditTextPreference(
+                            preference = syncPreferences.clientAPIKey,
+                            title = stringResource(MR.strings.pref_sync_api_key),
+                            subtitle = stringResource(MR.strings.pref_sync_api_key_summ),
+                        ),
+                        Preference.PreferenceItem.TextPreference(
+                            title = stringResource(MR.strings.pref_choose_what_to_sync),
+                            onClick = { navigator.push(SyncSettingsSelector()) },
+                        ),
+                        Preference.PreferenceItem.TextPreference(
+                            title = stringResource(MR.strings.pref_sync_now),
+                            subtitle = if (lastSync > 0L) {
+                                stringResource(MR.strings.last_synchronization, relativeTimeSpanString(lastSync))
+                            } else {
+                                stringResource(MR.strings.pref_sync_now_subtitle)
+                            },
+                            onClick = {
+                                if (SyncDataJob.isRunning(context)) {
+                                    context.toast(MR.strings.sync_in_progress)
+                                } else {
+                                    SyncDataJob.startNow(context)
+                                }
+                            },
+                        ),
+                        Preference.PreferenceItem.TextPreference(
+                            title = stringResource(MR.strings.pref_sync_options),
+                            subtitle = stringResource(MR.strings.pref_sync_options_summ),
+                            onClick = { navigator.push(SyncTriggerOptionsScreen()) },
+                        ),
+                    )
+                } else {
+                    persistentListOf()
+                }
+            ).toImmutableList(),
         )
     }
 

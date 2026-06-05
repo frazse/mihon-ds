@@ -16,10 +16,14 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkQuery
+import eu.kanade.domain.sync.SyncPreferences
+import eu.kanade.tachiyomi.data.sync.SyncDataJob
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import eu.kanade.domain.chapter.interactor.SyncChaptersWithSource
 import eu.kanade.domain.manga.interactor.UpdateManga
+import eu.kanade.domain.track.interactor.TrackChapter
+import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.domain.manga.model.toSManga
 import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.download.DownloadManager
@@ -82,6 +86,7 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
 
     private val sourceManager: SourceManager = Injekt.get()
     private val libraryPreferences: LibraryPreferences = Injekt.get()
+    private val trackPreferences: TrackPreferences = Injekt.get()
     private val downloadManager: DownloadManager = Injekt.get()
     private val coverCache: CoverCache = Injekt.get()
     private val getLibraryManga: GetLibraryManga = Injekt.get()
@@ -90,6 +95,7 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
     private val syncChaptersWithSource: SyncChaptersWithSource = Injekt.get()
     private val fetchInterval: FetchInterval = Injekt.get()
     private val filterChaptersForDownload: FilterChaptersForDownload = Injekt.get()
+    private val trackChapter: TrackChapter = Injekt.get()
 
     private val notifier = LibraryUpdateNotifier(context)
 
@@ -273,6 +279,12 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
                                             }
 
                                             libraryPreferences.newUpdatesCount().getAndSet { it + newChapters.size }
+
+                                            // Update tracker progress if new chapters found
+                                            if (trackPreferences.autoUpdateTrack().get()) {
+                                                val maxChapterNumber = newChapters.maxOf { it.chapterNumber.toDouble() }
+                                                trackChapter.await(context, manga.id, maxChapterNumber)
+                                            }
 
                                             // Convert to the manga that contains new chapters
                                             newUpdates.add(manga to newChapters.toTypedArray())
@@ -483,12 +495,32 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
             val inputData = workDataOf(
                 KEY_CATEGORY to category?.id,
             )
-            val request = OneTimeWorkRequestBuilder<LibraryUpdateJob>()
-                .addTag(TAG)
-                .addTag(WORK_NAME_MANUAL)
-                .setInputData(inputData)
-                .build()
-            wm.enqueueUniqueWork(WORK_NAME_MANUAL, ExistingWorkPolicy.KEEP, request)
+
+            val syncPreferences: SyncPreferences = Injekt.get()
+            if (syncPreferences.isSyncEnabled()) {
+                if (SyncDataJob.isRunning(context)) return false
+
+                val syncDataJob = OneTimeWorkRequestBuilder<SyncDataJob>()
+                    .addTag(SyncDataJob.TAG_MANUAL)
+                    .build()
+
+                val libraryUpdateJob = OneTimeWorkRequestBuilder<LibraryUpdateJob>()
+                    .addTag(TAG)
+                    .addTag(WORK_NAME_MANUAL)
+                    .setInputData(inputData)
+                    .build()
+
+                wm.beginUniqueWork(WORK_NAME_MANUAL, ExistingWorkPolicy.KEEP, syncDataJob)
+                    .then(libraryUpdateJob)
+                    .enqueue()
+            } else {
+                val request = OneTimeWorkRequestBuilder<LibraryUpdateJob>()
+                    .addTag(TAG)
+                    .addTag(WORK_NAME_MANUAL)
+                    .setInputData(inputData)
+                    .build()
+                wm.enqueueUniqueWork(WORK_NAME_MANUAL, ExistingWorkPolicy.KEEP, request)
+            }
 
             return true
         }

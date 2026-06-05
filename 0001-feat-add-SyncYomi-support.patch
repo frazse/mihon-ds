@@ -1,0 +1,2497 @@
+From ea29e7e0bcb962b495702caa8044eb772b4ade59 Mon Sep 17 00:00:00 2001
+From: patch <patch@mihon-ds>
+Date: Thu, 4 Jun 2026 21:00:46 +0000
+Subject: [PATCH] feat: add SyncYomi support
+
+---
+ .../eu/kanade/domain/sync/SyncPreferences.kt  | 105 ++++
+ .../kanade/domain/sync/models/SyncSettings.kt |  19 +
+ .../SyncChapterProgressWithTrack.kt           |  22 +-
+ .../settings/screen/SettingsDataScreen.kt     |  71 +++
+ .../screen/data/SyncSettingsSelector.kt       | 149 +++++
+ .../screen/data/SyncTriggerOptionsScreen.kt   | 101 +++
+ app/src/main/java/eu/kanade/tachiyomi/App.kt  |  13 +
+ .../data/library/LibraryUpdateJob.kt          |  44 +-
+ .../data/notification/NotificationReceiver.kt |  20 +
+ .../kanade/tachiyomi/data/sync/SyncDataJob.kt | 131 ++++
+ .../kanade/tachiyomi/data/sync/SyncManager.kt | 379 +++++++++++
+ .../tachiyomi/data/sync/SyncNotifier.kt       |  86 +++
+ .../data/sync/models/SyncTriggerOptions.kt    |  63 ++
+ .../data/sync/service/SyncService.kt          | 591 ++++++++++++++++++
+ .../data/sync/service/SyncYomiSyncService.kt  | 248 ++++++++
+ .../kanade/tachiyomi/di/PreferenceModule.kt   |   4 +
+ .../tachiyomi/ui/reader/ReaderActivity.kt     |   4 +-
+ .../tachiyomi/ui/reader/ReaderViewModel.kt    |  15 +
+ .../tachiyomi/ui/reader/panel/PanelSorter.kt  |  12 +-
+ .../ui/reader/panel/YoloPanelPostProcessor.kt |   2 +-
+ .../moko-resources/base/strings.xml           |  29 +
+ 21 files changed, 2089 insertions(+), 19 deletions(-)
+ create mode 100644 app/src/main/java/eu/kanade/domain/sync/SyncPreferences.kt
+ create mode 100644 app/src/main/java/eu/kanade/domain/sync/models/SyncSettings.kt
+ create mode 100644 app/src/main/java/eu/kanade/presentation/more/settings/screen/data/SyncSettingsSelector.kt
+ create mode 100644 app/src/main/java/eu/kanade/presentation/more/settings/screen/data/SyncTriggerOptionsScreen.kt
+ create mode 100644 app/src/main/java/eu/kanade/tachiyomi/data/sync/SyncDataJob.kt
+ create mode 100644 app/src/main/java/eu/kanade/tachiyomi/data/sync/SyncManager.kt
+ create mode 100644 app/src/main/java/eu/kanade/tachiyomi/data/sync/SyncNotifier.kt
+ create mode 100644 app/src/main/java/eu/kanade/tachiyomi/data/sync/models/SyncTriggerOptions.kt
+ create mode 100644 app/src/main/java/eu/kanade/tachiyomi/data/sync/service/SyncService.kt
+ create mode 100644 app/src/main/java/eu/kanade/tachiyomi/data/sync/service/SyncYomiSyncService.kt
+
+diff --git a/app/src/main/java/eu/kanade/domain/sync/SyncPreferences.kt b/app/src/main/java/eu/kanade/domain/sync/SyncPreferences.kt
+new file mode 100644
+index 0000000..d315f95
+--- /dev/null
++++ b/app/src/main/java/eu/kanade/domain/sync/SyncPreferences.kt
+@@ -0,0 +1,105 @@
++package eu.kanade.domain.sync
++
++import eu.kanade.domain.sync.models.SyncSettings
++import eu.kanade.tachiyomi.data.sync.models.SyncTriggerOptions
++import tachiyomi.core.common.preference.Preference
++import tachiyomi.core.common.preference.PreferenceStore
++import java.util.UUID
++
++class SyncPreferences(
++    private val preferenceStore: PreferenceStore,
++) {
++    val clientHost: Preference<String> = preferenceStore.getString("sync_client_host", "https://sync.tachiyomi.org")
++    val clientAPIKey: Preference<String> = preferenceStore.getString("sync_client_api_key", "")
++    val lastSyncTimestamp: Preference<Long> = preferenceStore.getLong(Preference.appStateKey("last_sync_timestamp"), 0L)
++
++    val lastSyncEtag: Preference<String> = preferenceStore.getString("sync_etag", "")
++
++    val syncInterval: Preference<Int> = preferenceStore.getInt("sync_interval", 0)
++    val syncService: Preference<Int> = preferenceStore.getInt("sync_service", 0)
++
++    val googleDriveAccessToken: Preference<String> = preferenceStore.getString(
++        Preference.appStateKey("google_drive_access_token"),
++        "",
++    )
++
++    val googleDriveRefreshToken: Preference<String> = preferenceStore.getString(
++        Preference.appStateKey("google_drive_refresh_token"),
++        "",
++    )
++
++    fun uniqueDeviceID(): String {
++        val uniqueIDPreference = preferenceStore.getString(Preference.appStateKey("unique_device_id"), "")
++
++        // Retrieve the current value of the preference
++        var uniqueID = uniqueIDPreference.get()
++        if (uniqueID.isBlank()) {
++            uniqueID = UUID.randomUUID().toString()
++            uniqueIDPreference.set(uniqueID)
++        }
++
++        return uniqueID
++    }
++
++    fun isSyncEnabled(): Boolean {
++        return syncService.get() != 0
++    }
++
++    fun getSyncSettings(): SyncSettings {
++        return SyncSettings(
++            libraryEntries = preferenceStore.getBoolean("library_entries", true).get(),
++            categories = preferenceStore.getBoolean("categories", true).get(),
++            chapters = preferenceStore.getBoolean("chapters", true).get(),
++            tracking = preferenceStore.getBoolean("tracking", true).get(),
++            history = preferenceStore.getBoolean("history", true).get(),
++            appSettings = preferenceStore.getBoolean("appSettings", true).get(),
++            extensionRepoSettings = preferenceStore.getBoolean("extensionRepoSettings", true).get(),
++            sourceSettings = preferenceStore.getBoolean("sourceSettings", true).get(),
++            privateSettings = preferenceStore.getBoolean("privateSettings", true).get(),
++
++            // SY -->
++            customInfo = preferenceStore.getBoolean("customInfo", true).get(),
++            readEntries = preferenceStore.getBoolean("readEntries", true).get(),
++            savedSearches = preferenceStore.getBoolean("savedSearches", true).get(),
++            // SY <--
++        )
++    }
++
++    fun setSyncSettings(syncSettings: SyncSettings) {
++        preferenceStore.getBoolean("library_entries", true).set(syncSettings.libraryEntries)
++        preferenceStore.getBoolean("categories", true).set(syncSettings.categories)
++        preferenceStore.getBoolean("chapters", true).set(syncSettings.chapters)
++        preferenceStore.getBoolean("tracking", true).set(syncSettings.tracking)
++        preferenceStore.getBoolean("history", true).set(syncSettings.history)
++        preferenceStore.getBoolean("appSettings", true).set(syncSettings.appSettings)
++        preferenceStore.getBoolean("extensionRepoSettings", true).set(syncSettings.extensionRepoSettings)
++        preferenceStore.getBoolean("sourceSettings", true).set(syncSettings.sourceSettings)
++        preferenceStore.getBoolean("privateSettings", true).set(syncSettings.privateSettings)
++
++        // SY -->
++        preferenceStore.getBoolean("customInfo", true).set(syncSettings.customInfo)
++        preferenceStore.getBoolean("readEntries", true).set(syncSettings.readEntries)
++        preferenceStore.getBoolean("savedSearches", true).set(syncSettings.savedSearches)
++        // SY <--
++    }
++
++    fun getSyncTriggerOptions(): SyncTriggerOptions {
++        return SyncTriggerOptions(
++            syncOnChapterRead = preferenceStore.getBoolean("sync_on_chapter_read", false).get(),
++            syncOnChapterOpen = preferenceStore.getBoolean("sync_on_chapter_open", false).get(),
++            syncOnAppStart = preferenceStore.getBoolean("sync_on_app_start", false).get(),
++            syncOnAppResume = preferenceStore.getBoolean("sync_on_app_resume", false).get(),
++        )
++    }
++
++    fun setSyncTriggerOptions(syncTriggerOptions: SyncTriggerOptions) {
++        preferenceStore.getBoolean("sync_on_chapter_read", false)
++            .set(syncTriggerOptions.syncOnChapterRead)
++        preferenceStore.getBoolean("sync_on_chapter_open", false)
++            .set(syncTriggerOptions.syncOnChapterOpen)
++        preferenceStore.getBoolean("sync_on_app_start", false)
++            .set(syncTriggerOptions.syncOnAppStart)
++        preferenceStore.getBoolean("sync_on_app_resume", false)
++            .set(syncTriggerOptions.syncOnAppResume)
++    }
++}
+diff --git a/app/src/main/java/eu/kanade/domain/sync/models/SyncSettings.kt b/app/src/main/java/eu/kanade/domain/sync/models/SyncSettings.kt
+new file mode 100644
+index 0000000..f0453f7
+--- /dev/null
++++ b/app/src/main/java/eu/kanade/domain/sync/models/SyncSettings.kt
+@@ -0,0 +1,19 @@
++package eu.kanade.domain.sync.models
++
++data class SyncSettings(
++    val libraryEntries: Boolean = true,
++    val categories: Boolean = true,
++    val chapters: Boolean = true,
++    val tracking: Boolean = true,
++    val history: Boolean = true,
++    val appSettings: Boolean = true,
++    val extensionRepoSettings: Boolean = true,
++    val sourceSettings: Boolean = true,
++    val privateSettings: Boolean = false,
++
++    // SY -->
++    val customInfo: Boolean = true,
++    val readEntries: Boolean = true,
++    val savedSearches: Boolean = true,
++    // SY <--
++)
+diff --git a/app/src/main/java/eu/kanade/domain/track/interactor/SyncChapterProgressWithTrack.kt b/app/src/main/java/eu/kanade/domain/track/interactor/SyncChapterProgressWithTrack.kt
+index 0731ce5..532ec49 100644
+--- a/app/src/main/java/eu/kanade/domain/track/interactor/SyncChapterProgressWithTrack.kt
++++ b/app/src/main/java/eu/kanade/domain/track/interactor/SyncChapterProgressWithTrack.kt
+@@ -1,6 +1,7 @@
+ package eu.kanade.domain.track.interactor
+ 
+ import eu.kanade.domain.track.model.toDbTrack
++import eu.kanade.tachiyomi.data.track.EnhancedTracker
+ import eu.kanade.tachiyomi.data.track.Tracker
+ import logcat.LogPriority
+ import tachiyomi.core.common.util.system.logcat
+@@ -22,11 +23,10 @@ class SyncChapterProgressWithTrack(
+         remoteTrack: Track,
+         tracker: Tracker,
+     ) {
+-        // KKM -->
+-        // if (tracker !is EnhancedTracker) {
+-        //     return
+-        // }
+-        // <-- KKM
++        // EnhancedTrackers like Suwayomi manage read state themselves —
++        // syncing chapter progress from them is redundant and can cause all
++        // chapters to be incorrectly marked as read due to numbering mismatches.
++        if (tracker is EnhancedTracker) return
+ 
+         // Current chapters in database
+         val sortedChapters = getChaptersByMangaId.await(mangaId)
+@@ -34,9 +34,15 @@ class SyncChapterProgressWithTrack(
+             .filter { it.isRecognizedNumber }
+ 
+         // Chapters to update to follow tracker
+-        val chapterUpdates = sortedChapters
+-            .filter { chapter -> chapter.chapterNumber <= remoteTrack.lastChapterRead && !chapter.read }
+-            .map { it.copy(read = true).toChapterUpdate() }
++        val maxLocalChapter = sortedChapters.lastOrNull()?.chapterNumber?.toDouble() ?: 0.0
++        val chapterUpdates = if (remoteTrack.lastChapterRead > 0.0 && maxLocalChapter > 0.0) {
++            val effectiveLastRead = minOf(remoteTrack.lastChapterRead, maxLocalChapter)
++            sortedChapters
++                .filter { chapter -> chapter.chapterNumber <= effectiveLastRead && !chapter.read }
++                .map { it.copy(read = true).toChapterUpdate() }
++        } else {
++            emptyList()
++        }
+ 
+         // only take into account continuous reading
+         val localLastRead = sortedChapters.takeWhile { it.read }.lastOrNull()?.chapterNumber ?: 0F
+diff --git a/app/src/main/java/eu/kanade/presentation/more/settings/screen/SettingsDataScreen.kt b/app/src/main/java/eu/kanade/presentation/more/settings/screen/SettingsDataScreen.kt
+index 9b65ed4..d5f4342 100644
+--- a/app/src/main/java/eu/kanade/presentation/more/settings/screen/SettingsDataScreen.kt
++++ b/app/src/main/java/eu/kanade/presentation/more/settings/screen/SettingsDataScreen.kt
+@@ -46,12 +46,17 @@ import eu.kanade.presentation.more.settings.Preference
+ import eu.kanade.presentation.more.settings.screen.data.CreateBackupScreen
+ import eu.kanade.presentation.more.settings.screen.data.RestoreBackupScreen
+ import eu.kanade.presentation.more.settings.screen.data.StorageInfo
++import eu.kanade.presentation.more.settings.screen.data.SyncSettingsSelector
++import eu.kanade.presentation.more.settings.screen.data.SyncTriggerOptionsScreen
+ import eu.kanade.presentation.more.settings.widget.BasePreferenceWidget
+ import eu.kanade.presentation.more.settings.widget.PrefsHorizontalPadding
+ import eu.kanade.presentation.util.relativeTimeSpanString
+ import eu.kanade.tachiyomi.data.backup.create.BackupCreateJob
+ import eu.kanade.tachiyomi.data.backup.restore.BackupRestoreJob
+ import eu.kanade.tachiyomi.data.cache.ChapterCache
++import eu.kanade.tachiyomi.data.sync.SyncDataJob
++import eu.kanade.tachiyomi.data.sync.SyncManager
++import eu.kanade.domain.sync.SyncPreferences
+ import eu.kanade.tachiyomi.data.export.LibraryExporter
+ import eu.kanade.tachiyomi.data.export.LibraryExporter.ExportOptions
+ import eu.kanade.tachiyomi.util.system.DeviceUtil
+@@ -102,12 +107,15 @@ object SettingsDataScreen : SearchableSettings {
+     override fun getPreferences(): List<Preference> {
+         val backupPreferences = Injekt.get<BackupPreferences>()
+         val storagePreferences = Injekt.get<StoragePreferences>()
++        val syncPreferences = Injekt.get<SyncPreferences>()
++        val syncService by syncPreferences.syncService().collectAsState()
+ 
+         return persistentListOf(
+             getStorageLocationPref(storagePreferences = storagePreferences),
+             Preference.PreferenceItem.InfoPreference(stringResource(MR.strings.pref_storage_location_info)),
+ 
+             getBackupAndRestoreGroup(backupPreferences = backupPreferences),
++            getSyncGroup(syncPreferences = syncPreferences, syncService = syncService),
+             getDataGroup(),
+             getExportGroup(),
+         )
+@@ -277,6 +285,69 @@ object SettingsDataScreen : SearchableSettings {
+         )
+     }
+ 
++    @Composable
++    private fun getSyncGroup(syncPreferences: SyncPreferences, syncService: Int): Preference.PreferenceGroup {
++        val context = LocalContext.current
++        val scope = rememberCoroutineScope()
++        val navigator = LocalNavigator.currentOrThrow
++        val syncServiceType = SyncManager.SyncService.fromInt(syncService)
++        val lastSync by syncPreferences.lastSyncTimestamp().collectAsState()
++
++        return Preference.PreferenceGroup(
++            title = stringResource(MR.strings.pref_sync_service_category),
++            preferenceItems = persistentListOf(
++                Preference.PreferenceItem.ListPreference(
++                    preference = syncPreferences.syncService(),
++                    title = stringResource(MR.strings.pref_sync_service),
++                    entries = persistentMapOf(
++                        SyncManager.SyncService.NONE.value to stringResource(MR.strings.off),
++                        SyncManager.SyncService.SYNCYOMI.value to stringResource(MR.strings.syncyomi),
++                    ),
++                    onValueChanged = { true },
++                ),
++            ) + if (syncServiceType == SyncManager.SyncService.SYNCYOMI) {
++                persistentListOf(
++                    Preference.PreferenceItem.EditTextPreference(
++                        preference = syncPreferences.syncHost(),
++                        title = stringResource(MR.strings.pref_sync_host),
++                        subtitle = stringResource(MR.strings.pref_sync_host_summ),
++                    ),
++                    Preference.PreferenceItem.EditTextPreference(
++                        preference = syncPreferences.syncAPIKey(),
++                        title = stringResource(MR.strings.pref_sync_api_key),
++                        subtitle = stringResource(MR.strings.pref_sync_api_key_summ),
++                    ),
++                    Preference.PreferenceItem.TextPreference(
++                        title = stringResource(MR.strings.pref_choose_what_to_sync),
++                        onClick = { navigator.push(SyncSettingsSelector()) },
++                    ),
++                    Preference.PreferenceItem.TextPreference(
++                        title = stringResource(MR.strings.pref_sync_now),
++                        subtitle = if (lastSync > 0L) {
++                            stringResource(MR.strings.last_synchronization, relativeTimeSpanString(lastSync))
++                        } else {
++                            stringResource(MR.strings.pref_sync_now_subtitle)
++                        },
++                        onClick = {
++                            if (SyncDataJob.isRunning(context)) {
++                                context.toast(MR.strings.sync_in_progress)
++                            } else {
++                                SyncDataJob.startNow(context)
++                            }
++                        },
++                    ),
++                    Preference.PreferenceItem.TextPreference(
++                        title = stringResource(MR.strings.pref_sync_options),
++                        subtitle = stringResource(MR.strings.pref_sync_options_summ),
++                        onClick = { navigator.push(SyncTriggerOptionsScreen()) },
++                    ),
++                )
++            } else {
++                persistentListOf()
++            },
++        )
++    }
++
+     @Composable
+     private fun getDataGroup(): Preference.PreferenceGroup {
+         val context = LocalContext.current
+diff --git a/app/src/main/java/eu/kanade/presentation/more/settings/screen/data/SyncSettingsSelector.kt b/app/src/main/java/eu/kanade/presentation/more/settings/screen/data/SyncSettingsSelector.kt
+new file mode 100644
+index 0000000..8329a38
+--- /dev/null
++++ b/app/src/main/java/eu/kanade/presentation/more/settings/screen/data/SyncSettingsSelector.kt
+@@ -0,0 +1,149 @@
++package eu.kanade.presentation.more.settings.screen.data
++
++import android.content.Context
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.Immutable
++import androidx.compose.runtime.collectAsState
++import androidx.compose.runtime.getValue
++import cafe.adriel.voyager.core.model.StateScreenModel
++import cafe.adriel.voyager.core.model.rememberScreenModel
++import cafe.adriel.voyager.navigator.LocalNavigator
++import cafe.adriel.voyager.navigator.currentOrThrow
++import eu.kanade.domain.sync.SyncPreferences
++import eu.kanade.domain.sync.models.SyncSettings
++import eu.kanade.presentation.components.AppBar
++import eu.kanade.presentation.util.Screen
++import eu.kanade.tachiyomi.data.backup.create.BackupOptions
++import eu.kanade.tachiyomi.data.sync.SyncDataJob
++import kotlinx.collections.immutable.ImmutableList
++import kotlinx.coroutines.flow.update
++import tachiyomi.i18n.MR
++import tachiyomi.i18n.MR
++import tachiyomi.presentation.core.components.LabeledCheckbox
++import tachiyomi.presentation.core.components.LazyColumnWithAction
++import tachiyomi.presentation.core.components.SectionCard
++import tachiyomi.presentation.core.components.material.Scaffold
++import tachiyomi.presentation.core.i18n.stringResource
++import uy.kohesive.injekt.Injekt
++import uy.kohesive.injekt.api.get
++
++class SyncSettingsSelector : Screen() {
++    @Composable
++    override fun Content() {
++        val navigator = LocalNavigator.currentOrThrow
++        val model = rememberScreenModel { SyncSettingsSelectorModel() }
++        val state by model.state.collectAsState()
++
++        Scaffold(
++            topBar = {
++                AppBar(
++                    title = stringResource(MR.strings.pref_choose_what_to_sync),
++                    navigateUp = navigator::pop,
++                    scrollBehavior = it,
++                )
++            },
++        ) { contentPadding ->
++            LazyColumnWithAction(
++                contentPadding = contentPadding,
++                actionLabel = stringResource(MR.strings.action_save),
++                actionEnabled = true,
++                onClickAction = {
++                    navigator.pop()
++                },
++            ) {
++                item {
++                    SectionCard(MR.strings.label_library) {
++                        Options(BackupOptions.libraryOptions, state, model)
++                    }
++                }
++
++                item {
++                    SectionCard(MR.strings.label_settings) {
++                        Options(BackupOptions.settingsOptions, state, model)
++                    }
++                }
++            }
++        }
++    }
++
++    @Composable
++    private fun Options(
++        options: ImmutableList<BackupOptions.Entry>,
++        state: SyncSettingsSelectorModel.State,
++        model: SyncSettingsSelectorModel,
++    ) {
++        options.forEach { option ->
++            LabeledCheckbox(
++                label = stringResource(option.label),
++                checked = option.getter(state.options),
++                onCheckedChange = {
++                    model.toggle(option.setter, it)
++                },
++                enabled = option.enabled(state.options),
++            )
++        }
++    }
++}
++
++private class SyncSettingsSelectorModel(
++    val syncPreferences: SyncPreferences = Injekt.get(),
++) : StateScreenModel<SyncSettingsSelectorModel.State>(
++    State(syncOptionsToBackupOptions(syncPreferences.getSyncSettings())),
++) {
++    fun toggle(setter: (BackupOptions, Boolean) -> BackupOptions, enabled: Boolean) {
++        mutableState.update {
++            val updatedOptions = setter(it.options, enabled)
++            syncPreferences.setSyncSettings(backupOptionsToSyncOptions(updatedOptions))
++            it.copy(options = updatedOptions)
++        }
++    }
++
++    fun syncNow(context: Context) {
++        SyncDataJob.startNow(context)
++    }
++
++    @Immutable
++    data class State(
++        val options: BackupOptions = BackupOptions(),
++    ) companion object {
++        private fun syncOptionsToBackupOptions(syncSettings: SyncSettings): BackupOptions {
++            return BackupOptions(
++                libraryEntries = syncSettings.libraryEntries,
++                categories = syncSettings.categories,
++                chapters = syncSettings.chapters,
++                tracking = syncSettings.tracking,
++                history = syncSettings.history,
++                appSettings = syncSettings.appSettings,
++                extensionRepoSettings = syncSettings.extensionRepoSettings,
++                sourceSettings = syncSettings.sourceSettings,
++                privateSettings = syncSettings.privateSettings,
++
++                // SY -->
++                customInfo = syncSettings.customInfo,
++                readEntries = syncSettings.readEntries,
++                savedSearches = syncSettings.savedSearches,
++                // SY <--
++            )
++        }
++
++        private fun backupOptionsToSyncOptions(backupOptions: BackupOptions): SyncSettings {
++            return SyncSettings(
++                libraryEntries = backupOptions.libraryEntries,
++                categories = backupOptions.categories,
++                chapters = backupOptions.chapters,
++                tracking = backupOptions.tracking,
++                history = backupOptions.history,
++                appSettings = backupOptions.appSettings,
++                extensionRepoSettings = backupOptions.extensionRepoSettings,
++                sourceSettings = backupOptions.sourceSettings,
++                privateSettings = backupOptions.privateSettings,
++
++                // SY -->
++                customInfo = backupOptions.customInfo,
++                readEntries = backupOptions.readEntries,
++                savedSearches = backupOptions.savedSearches,
++                // SY <--
++            )
++        }
++    }
++}
+diff --git a/app/src/main/java/eu/kanade/presentation/more/settings/screen/data/SyncTriggerOptionsScreen.kt b/app/src/main/java/eu/kanade/presentation/more/settings/screen/data/SyncTriggerOptionsScreen.kt
+new file mode 100644
+index 0000000..ddcfbeb
+--- /dev/null
++++ b/app/src/main/java/eu/kanade/presentation/more/settings/screen/data/SyncTriggerOptionsScreen.kt
+@@ -0,0 +1,101 @@
++package eu.kanade.presentation.more.settings.screen.data
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.Immutable
++import androidx.compose.runtime.collectAsState
++import androidx.compose.runtime.getValue
++import cafe.adriel.voyager.core.model.StateScreenModel
++import cafe.adriel.voyager.core.model.rememberScreenModel
++import cafe.adriel.voyager.navigator.LocalNavigator
++import cafe.adriel.voyager.navigator.currentOrThrow
++import eu.kanade.domain.sync.SyncPreferences
++import eu.kanade.presentation.components.AppBar
++import eu.kanade.presentation.util.Screen
++import eu.kanade.tachiyomi.data.sync.models.SyncTriggerOptions
++import kotlinx.collections.immutable.ImmutableList
++import kotlinx.coroutines.flow.update
++import tachiyomi.i18n.MR
++import tachiyomi.presentation.core.components.LabeledCheckbox
++import tachiyomi.presentation.core.components.LazyColumnWithAction
++import tachiyomi.presentation.core.components.SectionCard
++import tachiyomi.presentation.core.components.material.Scaffold
++import tachiyomi.presentation.core.i18n.stringResource
++import uy.kohesive.injekt.Injekt
++import uy.kohesive.injekt.api.get
++
++class SyncTriggerOptionsScreen : Screen() {
++
++    @Composable
++    override fun Content() {
++        val navigator = LocalNavigator.currentOrThrow
++        val model = rememberScreenModel { SyncOptionsScreenModel() }
++        val state by model.state.collectAsState()
++
++        Scaffold(
++            topBar = {
++                AppBar(
++                    title = stringResource(MR.strings.pref_sync_options),
++                    navigateUp = navigator::pop,
++                    scrollBehavior = it,
++                )
++            },
++        ) { contentPadding ->
++            LazyColumnWithAction(
++                contentPadding = contentPadding,
++                actionLabel = stringResource(MR.strings.action_save),
++                actionEnabled = true,
++                onClickAction = {
++                    navigator.pop()
++                },
++            ) {
++                item {
++                    SectionCard(MR.strings.label_triggers) {
++                        Options(SyncTriggerOptions.mainOptions, state, model)
++                    }
++                }
++            }
++        }
++    }
++
++    @Composable
++    private fun Options(
++        options: ImmutableList<SyncTriggerOptions.Entry>,
++        state: SyncOptionsScreenModel.State,
++        model: SyncOptionsScreenModel,
++    ) {
++        options.forEach { option ->
++            LabeledCheckbox(
++                label = stringResource(option.label),
++                checked = option.getter(state.options),
++                onCheckedChange = {
++                    model.toggle(option.setter, it)
++                },
++                enabled = option.enabled(state.options),
++            )
++        }
++    }
++}
++
++private class SyncOptionsScreenModel(
++    val syncPreferences: SyncPreferences = Injekt.get(),
++) : StateScreenModel<SyncOptionsScreenModel.State>(
++    State(
++        syncPreferences.getSyncTriggerOptions(),
++    ),
++) {
++
++    fun toggle(setter: (SyncTriggerOptions, Boolean) -> SyncTriggerOptions, enabled: Boolean) {
++        mutableState.update {
++            val updatedTriggerOptions = setter(it.options, enabled)
++            syncPreferences.setSyncTriggerOptions(updatedTriggerOptions)
++            it.copy(
++                options = updatedTriggerOptions,
++            )
++        }
++    }
++
++    @Immutable
++    data class State(
++        val options: SyncTriggerOptions = SyncTriggerOptions(),
++    )
++}
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/App.kt b/app/src/main/java/eu/kanade/tachiyomi/App.kt
+index f6e399f..a9f4687 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/App.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/App.kt
+@@ -25,6 +25,7 @@ import coil3.util.DebugLogger
+ import dev.mihon.injekt.patchInjekt
+ import eu.kanade.domain.DomainModule
+ import eu.kanade.domain.base.BasePreferences
++import eu.kanade.domain.sync.SyncPreferences
+ import eu.kanade.domain.ui.UiPreferences
+ import eu.kanade.domain.ui.model.setAppCompatDelegateThemeMode
+ import eu.kanade.tachiyomi.core.security.PrivacyPreferences
+@@ -36,6 +37,7 @@ import eu.kanade.tachiyomi.data.coil.MangaCoverKeyer
+ import eu.kanade.tachiyomi.data.coil.MangaKeyer
+ import eu.kanade.tachiyomi.data.coil.TachiyomiImageDecoder
+ import eu.kanade.tachiyomi.data.notification.Notifications
++import eu.kanade.tachiyomi.data.sync.SyncDataJob
+ import eu.kanade.tachiyomi.di.AppModule
+ import eu.kanade.tachiyomi.di.PreferenceModule
+ import eu.kanade.tachiyomi.network.NetworkHelper
+@@ -104,6 +106,12 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
+ 
+         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
+ 
++        val syncPreferences: SyncPreferences = Injekt.get()
++        val syncTriggerOpt = syncPreferences.getSyncTriggerOptions()
++        if (syncPreferences.isSyncEnabled() && syncTriggerOpt.syncOnAppStart) {
++            SyncDataJob.startNow(this@App)
++        }
++
+         val scope = ProcessLifecycleOwner.get().lifecycleScope
+ 
+         // Show notification to disable Incognito Mode when it's enabled
+@@ -222,6 +230,11 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
+ 
+     override fun onStart(owner: LifecycleOwner) {
+         SecureActivityDelegate.onApplicationStart()
++        val syncPreferences: SyncPreferences = Injekt.get()
++        val syncTriggerOpt = syncPreferences.getSyncTriggerOptions()
++        if (syncPreferences.isSyncEnabled() && syncTriggerOpt.syncOnAppResume) {
++            SyncDataJob.startNow(this@App)
++        }
+     }
+ 
+     override fun onStop(owner: LifecycleOwner) {
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/data/library/LibraryUpdateJob.kt b/app/src/main/java/eu/kanade/tachiyomi/data/library/LibraryUpdateJob.kt
+index 260854b..eccb571 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/data/library/LibraryUpdateJob.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/data/library/LibraryUpdateJob.kt
+@@ -16,10 +16,14 @@ import androidx.work.OneTimeWorkRequestBuilder
+ import androidx.work.PeriodicWorkRequestBuilder
+ import androidx.work.WorkInfo
+ import androidx.work.WorkQuery
++import eu.kanade.domain.sync.SyncPreferences
++import eu.kanade.tachiyomi.data.sync.SyncDataJob
+ import androidx.work.WorkerParameters
+ import androidx.work.workDataOf
+ import eu.kanade.domain.chapter.interactor.SyncChaptersWithSource
+ import eu.kanade.domain.manga.interactor.UpdateManga
++import eu.kanade.domain.track.interactor.TrackChapter
++import eu.kanade.domain.track.service.TrackPreferences
+ import eu.kanade.domain.manga.model.toSManga
+ import eu.kanade.tachiyomi.data.cache.CoverCache
+ import eu.kanade.tachiyomi.data.download.DownloadManager
+@@ -82,6 +86,7 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
+ 
+     private val sourceManager: SourceManager = Injekt.get()
+     private val libraryPreferences: LibraryPreferences = Injekt.get()
++    private val trackPreferences: TrackPreferences = Injekt.get()
+     private val downloadManager: DownloadManager = Injekt.get()
+     private val coverCache: CoverCache = Injekt.get()
+     private val getLibraryManga: GetLibraryManga = Injekt.get()
+@@ -90,6 +95,7 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
+     private val syncChaptersWithSource: SyncChaptersWithSource = Injekt.get()
+     private val fetchInterval: FetchInterval = Injekt.get()
+     private val filterChaptersForDownload: FilterChaptersForDownload = Injekt.get()
++    private val trackChapter: TrackChapter = Injekt.get()
+ 
+     private val notifier = LibraryUpdateNotifier(context)
+ 
+@@ -274,6 +280,12 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
+ 
+                                             libraryPreferences.newUpdatesCount().getAndSet { it + newChapters.size }
+ 
++                                            // Update tracker progress if new chapters found
++                                            if (trackPreferences.autoUpdateTrack().get()) {
++                                                val maxChapterNumber = newChapters.maxOf { it.chapterNumber.toDouble() }
++                                                trackChapter.await(context, manga.id, maxChapterNumber)
++                                            }
++
+                                             // Convert to the manga that contains new chapters
+                                             newUpdates.add(manga to newChapters.toTypedArray())
+                                         }
+@@ -483,12 +495,32 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
+             val inputData = workDataOf(
+                 KEY_CATEGORY to category?.id,
+             )
+-            val request = OneTimeWorkRequestBuilder<LibraryUpdateJob>()
+-                .addTag(TAG)
+-                .addTag(WORK_NAME_MANUAL)
+-                .setInputData(inputData)
+-                .build()
+-            wm.enqueueUniqueWork(WORK_NAME_MANUAL, ExistingWorkPolicy.KEEP, request)
++
++            val syncPreferences: SyncPreferences = Injekt.get()
++            if (syncPreferences.isSyncEnabled()) {
++                if (SyncDataJob.isRunning(context)) return false
++
++                val syncDataJob = OneTimeWorkRequestBuilder<SyncDataJob>()
++                    .addTag(SyncDataJob.TAG_MANUAL)
++                    .build()
++
++                val libraryUpdateJob = OneTimeWorkRequestBuilder<LibraryUpdateJob>()
++                    .addTag(TAG)
++                    .addTag(WORK_NAME_MANUAL)
++                    .setInputData(inputData)
++                    .build()
++
++                wm.beginUniqueWork(WORK_NAME_MANUAL, ExistingWorkPolicy.KEEP, syncDataJob)
++                    .then(libraryUpdateJob)
++                    .enqueue()
++            } else {
++                val request = OneTimeWorkRequestBuilder<LibraryUpdateJob>()
++                    .addTag(TAG)
++                    .addTag(WORK_NAME_MANUAL)
++                    .setInputData(inputData)
++                    .build()
++                wm.enqueueUniqueWork(WORK_NAME_MANUAL, ExistingWorkPolicy.KEEP, request)
++            }
+ 
+             return true
+         }
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/data/notification/NotificationReceiver.kt b/app/src/main/java/eu/kanade/tachiyomi/data/notification/NotificationReceiver.kt
+index 18bafc2..7dfa876 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/data/notification/NotificationReceiver.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/data/notification/NotificationReceiver.kt
+@@ -7,6 +7,7 @@ import android.content.Intent
+ import android.net.Uri
+ import androidx.core.net.toUri
+ import eu.kanade.tachiyomi.data.backup.restore.BackupRestoreJob
++import eu.kanade.tachiyomi.data.sync.SyncDataJob
+ import eu.kanade.tachiyomi.data.download.DownloadManager
+ import eu.kanade.tachiyomi.data.library.LibraryUpdateJob
+ import eu.kanade.tachiyomi.data.updater.AppUpdateDownloadJob
+@@ -70,6 +71,7 @@ class NotificationReceiver : BroadcastReceiver() {
+                     "application/x-protobuf+gzip",
+                 )
+             ACTION_CANCEL_RESTORE -> cancelRestore(context)
++            ACTION_CANCEL_SYNC -> cancelSync(context)
+             // Cancel library update and dismiss notification
+             ACTION_CANCEL_LIBRARY_UPDATE -> cancelLibraryUpdate(context)
+             // Start downloading app update
+@@ -169,6 +171,10 @@ class NotificationReceiver : BroadcastReceiver() {
+         BackupRestoreJob.stop(context)
+     }
+ 
++    private fun cancelSync(context: Context) {
++        SyncDataJob.stop(context)
++    }
++
+     /**
+      * Method called when user wants to stop a library update
+      *
+@@ -238,6 +244,7 @@ class NotificationReceiver : BroadcastReceiver() {
+         private const val ACTION_SHARE_BACKUP = "$ID.$NAME.SEND_BACKUP"
+ 
+         private const val ACTION_CANCEL_RESTORE = "$ID.$NAME.CANCEL_RESTORE"
++        private const val ACTION_CANCEL_SYNC = "$ID.$NAME.CANCEL_SYNC"
+ 
+         private const val ACTION_CANCEL_LIBRARY_UPDATE = "$ID.$NAME.CANCEL_LIBRARY_UPDATE"
+ 
+@@ -636,5 +643,18 @@ class NotificationReceiver : BroadcastReceiver() {
+                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+             )
+         }
++
++        internal fun cancelSyncPendingBroadcast(context: Context, notificationId: Int): PendingIntent {
++            val intent = Intent(context, NotificationReceiver::class.java).apply {
++                action = ACTION_CANCEL_SYNC
++                putExtra(EXTRA_NOTIFICATION_ID, notificationId)
++            }
++            return PendingIntent.getBroadcast(
++                context,
++                0,
++                intent,
++                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
++            )
++        }
+     }
+ }
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/data/sync/SyncDataJob.kt b/app/src/main/java/eu/kanade/tachiyomi/data/sync/SyncDataJob.kt
+new file mode 100644
+index 0000000..81f9855
+--- /dev/null
++++ b/app/src/main/java/eu/kanade/tachiyomi/data/sync/SyncDataJob.kt
+@@ -0,0 +1,131 @@
++package eu.kanade.tachiyomi.data.sync
++
++import android.content.Context
++import android.content.pm.ServiceInfo
++import android.os.Build
++import androidx.work.CoroutineWorker
++import androidx.work.ExistingPeriodicWorkPolicy
++import androidx.work.ExistingWorkPolicy
++import androidx.work.ForegroundInfo
++import androidx.work.OneTimeWorkRequestBuilder
++import androidx.work.PeriodicWorkRequestBuilder
++import androidx.work.WorkInfo
++import androidx.work.WorkQuery
++import androidx.work.WorkerParameters
++import eu.kanade.domain.sync.SyncPreferences
++import eu.kanade.tachiyomi.data.notification.Notifications
++import eu.kanade.tachiyomi.util.system.cancelNotification
++import eu.kanade.tachiyomi.util.system.isOnline
++import eu.kanade.tachiyomi.util.system.isRunning
++import eu.kanade.tachiyomi.util.system.setForegroundSafely
++import eu.kanade.tachiyomi.util.system.workManager
++import logcat.LogPriority
++import tachiyomi.core.common.util.system.logcat
++import uy.kohesive.injekt.Injekt
++import uy.kohesive.injekt.api.get
++import java.util.concurrent.TimeUnit
++
++class SyncDataJob(private val context: Context, workerParams: WorkerParameters) :
++    CoroutineWorker(context, workerParams) {
++
++    private val notifier = SyncNotifier(context)
++
++    override suspend fun doWork(): Result {
++        if (tags.contains(TAG_AUTO)) {
++            if (!context.isOnline()) {
++                return Result.retry()
++            }
++            // Find a running manual worker. If exists, try again later
++            if (context.workManager.isRunning(TAG_MANUAL)) {
++                return Result.retry()
++            }
++        }
++
++        setForegroundSafely()
++
++        return try {
++            SyncManager(context).syncData()
++            Result.success()
++        } catch (e: Exception) {
++            logcat(LogPriority.ERROR, e)
++            notifier.showSyncError(e.message)
++            Result.success() // try again next time
++        } finally {
++            context.cancelNotification(Notifications.ID_RESTORE_PROGRESS)
++        }
++    }
++
++    override suspend fun getForegroundInfo(): ForegroundInfo {
++        return ForegroundInfo(
++            Notifications.ID_RESTORE_PROGRESS,
++            notifier.showSyncProgress().build(),
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
++                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
++            } else {
++                0
++            },
++        )
++    }
++
++    companion object {
++        private const val TAG_JOB = "SyncDataJob"
++        private const val TAG_AUTO = "$TAG_JOB:auto"
++        const val TAG_MANUAL = "$TAG_JOB:manual"
++
++        fun isRunning(context: Context): Boolean {
++            return context.workManager.isRunning(TAG_JOB)
++        }
++
++        fun setupTask(context: Context, prefInterval: Int? = null) {
++            val syncPreferences = Injekt.get<SyncPreferences>()
++            val interval = prefInterval ?: syncPreferences.syncInterval.get()
++
++            if (interval > 0) {
++                val request = PeriodicWorkRequestBuilder<SyncDataJob>(
++                    interval.toLong(),
++                    TimeUnit.MINUTES,
++                    10,
++                    TimeUnit.MINUTES,
++                )
++                    .addTag(TAG_JOB)
++                    .addTag(TAG_AUTO)
++                    .build()
++
++                context.workManager.enqueueUniquePeriodicWork(TAG_AUTO, ExistingPeriodicWorkPolicy.UPDATE, request)
++            } else {
++                context.workManager.cancelUniqueWork(TAG_AUTO)
++            }
++        }
++
++        fun startNow(context: Context, manual: Boolean = false) {
++            val wm = context.workManager
++            if (wm.isRunning(TAG_JOB)) {
++                // Already running either as a scheduled or manual job
++                return
++            }
++            val tag = if (manual) TAG_MANUAL else TAG_AUTO
++            val request = OneTimeWorkRequestBuilder<SyncDataJob>()
++                .addTag(TAG_JOB)
++                .addTag(tag)
++                .build()
++            context.workManager.enqueueUniqueWork(tag, ExistingWorkPolicy.KEEP, request)
++        }
++
++        fun stop(context: Context) {
++            val wm = context.workManager
++            val workQuery = WorkQuery.Builder.fromTags(listOf(TAG_JOB, TAG_AUTO, TAG_MANUAL))
++                .addStates(listOf(WorkInfo.State.RUNNING))
++                .build()
++            wm.getWorkInfos(workQuery).get()
++                // Should only return one work but just in case
++                .forEach {
++                    wm.cancelWorkById(it.id)
++
++                    // Re-enqueue cancelled scheduled work
++                    if (it.tags.contains(TAG_AUTO)) {
++                        setupTask(context)
++                    }
++                }
++        }
++    }
++}
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/data/sync/SyncManager.kt b/app/src/main/java/eu/kanade/tachiyomi/data/sync/SyncManager.kt
+new file mode 100644
+index 0000000..3a37a5a
+--- /dev/null
++++ b/app/src/main/java/eu/kanade/tachiyomi/data/sync/SyncManager.kt
+@@ -0,0 +1,379 @@
++package eu.kanade.tachiyomi.data.sync
++
++import android.content.Context
++import android.net.Uri
++import eu.kanade.domain.sync.SyncPreferences
++import eu.kanade.tachiyomi.data.backup.create.BackupCreator
++import eu.kanade.tachiyomi.data.backup.create.BackupOptions
++import eu.kanade.tachiyomi.data.backup.models.Backup
++import eu.kanade.tachiyomi.data.backup.models.BackupChapter
++import eu.kanade.tachiyomi.data.backup.models.BackupManga
++import eu.kanade.tachiyomi.data.backup.restore.BackupRestoreJob
++import eu.kanade.tachiyomi.data.backup.restore.RestoreOptions
++import eu.kanade.tachiyomi.data.backup.restore.restorers.MangaRestorer
++import eu.kanade.tachiyomi.data.sync.service.SyncData
++import eu.kanade.tachiyomi.data.sync.service.SyncYomiSyncService
++import kotlinx.serialization.json.Json
++import kotlinx.serialization.protobuf.ProtoBuf
++import logcat.LogPriority
++import logcat.logcat
++import tachiyomi.core.common.util.system.logcat
++import tachiyomi.data.Chapters
++import tachiyomi.data.DatabaseHandler
++import tachiyomi.data.manga.MangaMapper.mapManga
++import tachiyomi.domain.category.interactor.GetCategories
++import tachiyomi.domain.manga.model.Manga
++import uy.kohesive.injekt.Injekt
++import uy.kohesive.injekt.api.get
++import java.io.File
++import java.io.IOException
++import java.util.Date
++import kotlin.system.measureTimeMillis
++
++/**
++ * A manager to handle synchronization tasks in the app, such as updating
++ * sync preferences and performing synchronization with a remote server.
++ *
++ * @property context The application context.
++ */
++class SyncManager(
++    private val context: Context,
++    private val handler: DatabaseHandler = Injekt.get(),
++    private val syncPreferences: SyncPreferences = Injekt.get(),
++    private var json: Json = Json {
++        encodeDefaults = true
++        ignoreUnknownKeys = true
++    },
++    private val getCategories: GetCategories = Injekt.get(),
++) {
++    private val backupCreator: BackupCreator = BackupCreator(context, false)
++    private val notifier: SyncNotifier = SyncNotifier(context)
++    private val mangaRestorer: MangaRestorer = MangaRestorer()
++
++    enum class SyncService(val value: Int) {
++        NONE(0),
++        SYNCYOMI(1),
++        ;
++
++        companion object {
++            fun fromInt(value: Int) = entries.firstOrNull { it.value == value } ?: NONE
++        }
++    }
++
++    /**
++     * Syncs data with a sync service.
++     *
++     * This function retrieves local data (favorites, manga, extensions, and categories)
++     * from the database using the BackupManager, then synchronizes the data with a sync service.
++     */
++    suspend fun syncData() {
++        // Reset isSyncing in case it was left over or failed syncing during restore.
++        handler.await(inTransaction = true) {
++            mangasQueries.resetIsSyncing()
++            chaptersQueries.resetIsSyncing()
++            categoriesQueries.resetIsSyncing()
++        }
++
++        val syncOptions = syncPreferences.getSyncSettings()
++        val databaseManga = getAllMangaThatNeedsSync()
++
++        val backupOptions = BackupOptions(
++            libraryEntries = syncOptions.libraryEntries,
++            categories = syncOptions.categories,
++            chapters = syncOptions.chapters,
++            tracking = syncOptions.tracking,
++            history = syncOptions.history,
++            extensionRepoSettings = syncOptions.extensionRepoSettings,
++            appSettings = syncOptions.appSettings,
++            sourceSettings = syncOptions.sourceSettings,
++            privateSettings = syncOptions.privateSettings,
++
++            // SY -->
++            customInfo = syncOptions.customInfo,
++            readEntries = syncOptions.readEntries,
++            savedSearches = syncOptions.savedSearches,
++            // SY <--
++        )
++
++        logcat(LogPriority.DEBUG) { "Begin create backup" }
++        val backupManga = backupCreator.backupMangas(databaseManga, backupOptions)
++        val backup = Backup(
++            backupManga = backupManga,
++            backupCategories = backupCreator.backupCategories(backupOptions),
++            backupSources = backupCreator.backupSources(backupManga),
++            backupPreferences = backupCreator.backupAppPreferences(backupOptions),
++            backupSourcePreferences = backupCreator.backupSourcePreferences(backupOptions),
++            backupExtensionRepo = backupCreator.backupExtensionRepos(backupOptions),
++
++            // SY -->
++            backupSavedSearches = backupCreator.backupSavedSearches(backupOptions),
++            // SY <--
++        )
++        logcat(LogPriority.DEBUG) { "End create backup" }
++
++        // Create the SyncData object
++        val syncData = SyncData(
++            deviceId = syncPreferences.uniqueDeviceID(),
++            backup = backup,
++        )
++
++        // Handle sync based on the selected service
++        val syncService = when (val syncService = SyncService.fromInt(syncPreferences.syncService.get())) {
++            SyncService.SYNCYOMI -> {
++                SyncYomiSyncService(
++                    context,
++                    json,
++                    syncPreferences,
++                    notifier,
++                )
++            }
++
++            else -> {
++                logcat(LogPriority.ERROR) { "Invalid sync service type: $syncService" }
++                null
++            }
++        }
++
++        val remoteBackup = syncService?.doSync(syncData)
++
++        if (remoteBackup == null) {
++            logcat(LogPriority.DEBUG) { "Skip restore due to network issues" }
++            // should we call showSyncError?
++            return
++        }
++
++        if (remoteBackup === syncData.backup) {
++            // nothing changed
++            logcat(LogPriority.DEBUG) { "Skip restore due to remote was overwrite from local" }
++            syncPreferences.lastSyncTimestamp.set(Date().time)
++            notifier.showSyncSuccess("Sync completed successfully")
++            return
++        }
++
++        // Stop the sync early if the remote backup is null or empty
++        if (remoteBackup.backupManga.isEmpty() && remoteBackup.backupCategories.isEmpty() && remoteBackup.backupSources.isEmpty()) {
++            notifier.showSyncError("No data found on remote server.")
++            return
++        }
++
++        // Check if it's first sync based on lastSyncTimestamp
++        if (syncPreferences.lastSyncTimestamp.get() == 0L && databaseManga.isNotEmpty()) {
++            // It's first sync no need to restore data. (just update remote data)
++            syncPreferences.lastSyncTimestamp.set(Date().time)
++            notifier.showSyncSuccess("Updated remote data successfully")
++            return
++        }
++
++        val (filteredFavorites, nonFavorites) = filterFavoritesAndNonFavorites(remoteBackup)
++        updateNonFavorites(nonFavorites)
++
++        val newSyncData = backup.copy(
++            backupManga = filteredFavorites,
++            backupCategories = remoteBackup.backupCategories,
++            backupSources = remoteBackup.backupSources,
++            backupPreferences = remoteBackup.backupPreferences,
++            backupSourcePreferences = remoteBackup.backupSourcePreferences,
++            backupExtensionRepo = remoteBackup.backupExtensionRepo,
++
++            // SY -->
++            backupSavedSearches = remoteBackup.backupSavedSearches,
++            // SY <--
++        )
++
++        val hasMangaChanges = filteredFavorites.isNotEmpty()
++        val hasCategoryChanges = remoteBackup.backupCategories != backup.backupCategories
++        val hasSourceChanges = remoteBackup.backupSources != backup.backupSources
++        val hasPreferenceChanges = remoteBackup.backupPreferences != backup.backupPreferences
++        val hasSourcePreferenceChanges = remoteBackup.backupSourcePreferences != backup.backupSourcePreferences
++        val hasExtensionRepoChanges = remoteBackup.backupExtensionRepo != backup.backupExtensionRepo
++        val hasSavedSearchChanges = remoteBackup.backupSavedSearches != backup.backupSavedSearches
++
++        if (!hasMangaChanges && !hasCategoryChanges && !hasSourceChanges &&
++            !hasPreferenceChanges && !hasSourcePreferenceChanges &&
++            !hasExtensionRepoChanges && !hasSavedSearchChanges
++        ) {
++            // update the sync timestamp
++            syncPreferences.lastSyncTimestamp.set(Date().time)
++            notifier.showSyncSuccess("Sync completed successfully")
++            return
++        }
++
++        if (syncOptions.categories) {
++            val mergedUids = newSyncData.backupCategories.map { it.uid }.toSet()
++            val mergedNames = newSyncData.backupCategories.map { it.name }.toSet()
++            val localCategories = getCategories.await().filterNot { it.id == 0L } // Exclude system category
++            val categoriesToDelete = localCategories.filter {
++                it.uid !in mergedUids && it.name !in mergedNames
++            }
++            if (categoriesToDelete.isNotEmpty()) {
++                handler.await(inTransaction = true) {
++                    categoriesToDelete.forEach {
++                        categoriesQueries.delete(it.id)
++                    }
++                }
++            }
++        }
++
++        val backupUri = writeSyncDataToCache(context, newSyncData)
++        logcat(LogPriority.DEBUG) { "Got Backup Uri: $backupUri" }
++        if (backupUri != null) {
++            BackupRestoreJob.start(
++                context,
++                backupUri,
++                sync = true,
++                options = RestoreOptions(
++                    appSettings = syncOptions.appSettings,
++                    sourceSettings = syncOptions.sourceSettings,
++                    libraryEntries = syncOptions.libraryEntries,
++                    categories = syncOptions.categories,
++                    extensionRepoSettings = syncOptions.extensionRepoSettings,
++                    // SY -->
++                    savedSearches = syncOptions.savedSearches,
++                    // SY <--
++                ),
++            )
++
++            // update the sync timestamp
++            syncPreferences.lastSyncTimestamp.set(Date().time)
++        } else {
++            logcat(LogPriority.ERROR) { "Failed to write sync data to file" }
++        }
++    }
++
++    private fun writeSyncDataToCache(context: Context, backup: Backup): Uri? {
++        val cacheFile = File(context.cacheDir, "tachiyomi_sync_data.proto.gz")
++        return try {
++            cacheFile.outputStream().use { output ->
++                output.write(ProtoBuf.encodeToByteArray(Backup.serializer(), backup))
++                Uri.fromFile(cacheFile)
++            }
++        } catch (e: IOException) {
++            logcat(LogPriority.ERROR, throwable = e) { "Failed to write sync data to cache" }
++            null
++        }
++    }
++
++    /**
++     * Retrieves all manga from the local database.
++     *
++     * @return a list of all manga stored in the database
++     */
++    private suspend fun getAllMangaFromDB(): List<Manga> {
++        return handler.awaitList { mangasQueries.getAllManga(::mapManga) }
++    }
++
++    private suspend fun getAllMangaThatNeedsSync(): List<Manga> {
++        return handler.awaitList { mangasQueries.getMangasWithFavoriteTimestamp(::mapManga) }
++    }
++
++    private suspend fun isMangaDifferent(localManga: Manga, remoteManga: BackupManga): Boolean {
++        val localChapters = handler.await { chaptersQueries.getChaptersByMangaId(localManga.id, 0).executeAsList() }
++        val localCategories = getCategories.await(localManga.id).map { it.order }
++
++        if (areChaptersDifferent(localChapters, remoteManga.chapters)) {
++            return true
++        }
++
++        if (localManga.version != remoteManga.version) {
++            return true
++        }
++
++        if (localCategories.toSet() != remoteManga.categories.toSet()) {
++            return true
++        }
++
++        return false
++    }
++
++    private fun areChaptersDifferent(localChapters: List<Chapters>, remoteChapters: List<BackupChapter>): Boolean {
++        val localChapterMap = localChapters.associateBy { it.url }
++        val remoteChapterMap = remoteChapters.associateBy { it.url }
++
++        if (localChapterMap.size != remoteChapterMap.size) {
++            return true
++        }
++
++        for ((url, localChapter) in localChapterMap) {
++            val remoteChapter = remoteChapterMap[url]
++
++            // If a matching remote chapter doesn't exist, or the version numbers are different, consider them different
++            if (remoteChapter == null || localChapter.version != remoteChapter.version) {
++                return true
++            }
++        }
++
++        return false
++    }
++
++    /**
++     * Filters the favorite and non-favorite manga from the backup and checks
++     * if the favorite manga is different from the local database.
++     * @param backup the Backup object containing the backup data.
++     * @return a Pair of lists, where the first list contains different favorite manga
++     * and the second list contains non-favorite manga.
++     */
++    private suspend fun filterFavoritesAndNonFavorites(backup: Backup): Pair<List<BackupManga>, List<BackupManga>> {
++        val favorites = mutableListOf<BackupManga>()
++        val nonFavorites = mutableListOf<BackupManga>()
++        val logTag = "filterFavoritesAndNonFavorites"
++
++        val elapsedTimeMillis = measureTimeMillis {
++            val databaseManga = getAllMangaFromDB()
++            val localMangaMap = databaseManga.associateBy {
++                Triple(it.source, it.url, it.title)
++            }
++
++            logcat(LogPriority.DEBUG, logTag) { "Starting to filter favorites and non-favorites from backup data." }
++
++            backup.backupManga.forEach { remoteManga ->
++                val compositeKey = Triple(remoteManga.source, remoteManga.url, remoteManga.title)
++                val localManga = localMangaMap[compositeKey]
++                when {
++                    // Checks if the manga is in favorites and needs updating or adding
++                    remoteManga.favorite -> {
++                        if (localManga == null || isMangaDifferent(localManga, remoteManga)) {
++                            logcat(LogPriority.DEBUG, logTag) { "Adding to favorites: ${remoteManga.title}" }
++                            favorites.add(remoteManga)
++                        } else {
++                            logcat(LogPriority.DEBUG, logTag) { "Already up-to-date favorite: ${remoteManga.title}" }
++                        }
++                    }
++                    // Handle non-favorites
++                    !remoteManga.favorite -> {
++                        logcat(LogPriority.DEBUG, logTag) { "Adding to non-favorites: ${remoteManga.title}" }
++                        nonFavorites.add(remoteManga)
++                    }
++                }
++            }
++        }
++
++        val minutes = elapsedTimeMillis / 60000
++        val seconds = (elapsedTimeMillis % 60000) / 1000
++        logcat(LogPriority.DEBUG, logTag) {
++            "Filtering completed in ${minutes}m ${seconds}s. Favorites found: ${favorites.size}, " +
++                "Non-favorites found: ${nonFavorites.size}"
++        }
++
++        return Pair(favorites, nonFavorites)
++    }
++
++    /**
++     * Updates the non-favorite manga in the local database with their favorite status from the backup.
++     * @param nonFavorites the list of non-favorite BackupManga objects from the backup.
++     */
++    private suspend fun updateNonFavorites(nonFavorites: List<BackupManga>) {
++        val localMangaList = getAllMangaFromDB()
++
++        val localMangaMap = localMangaList.associateBy { Triple(it.source, it.url, it.title) }
++
++        nonFavorites.forEach { nonFavorite ->
++            val key = Triple(nonFavorite.source, nonFavorite.url, nonFavorite.title)
++            localMangaMap[key]?.let { localManga ->
++                if (localManga.favorite != nonFavorite.favorite) {
++                    val updatedManga = localManga.copy(favorite = nonFavorite.favorite)
++                    mangaRestorer.updateManga(updatedManga)
++                }
++            }
++        }
++    }
++}
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/data/sync/SyncNotifier.kt b/app/src/main/java/eu/kanade/tachiyomi/data/sync/SyncNotifier.kt
+new file mode 100644
+index 0000000..a25acc7
+--- /dev/null
++++ b/app/src/main/java/eu/kanade/tachiyomi/data/sync/SyncNotifier.kt
+@@ -0,0 +1,86 @@
++package eu.kanade.tachiyomi.data.sync
++
++import android.content.Context
++import android.graphics.BitmapFactory
++import androidx.core.app.NotificationCompat
++import eu.kanade.tachiyomi.R
++import eu.kanade.tachiyomi.core.security.SecurityPreferences
++import eu.kanade.tachiyomi.data.notification.NotificationReceiver
++import eu.kanade.tachiyomi.data.notification.Notifications
++import eu.kanade.tachiyomi.util.system.cancelNotification
++import eu.kanade.tachiyomi.util.system.notificationBuilder
++import eu.kanade.tachiyomi.util.system.notify
++import uy.kohesive.injekt.injectLazy
++
++class SyncNotifier(private val context: Context) {
++
++    private val preferences: SecurityPreferences by injectLazy()
++
++    private val progressNotificationBuilder = context.notificationBuilder(
++        Notifications.CHANNEL_BACKUP_RESTORE_PROGRESS,
++    ) {
++        setLargeIcon(BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
++        setSmallIcon(R.drawable.ic_tachi)
++        setAutoCancel(false)
++        setOngoing(true)
++        setOnlyAlertOnce(true)
++    }
++
++    private val completeNotificationBuilder = context.notificationBuilder(
++        Notifications.CHANNEL_BACKUP_RESTORE_COMPLETE,
++    ) {
++        setLargeIcon(BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
++        setSmallIcon(R.drawable.ic_tachi)
++        setAutoCancel(false)
++    }
++
++    private fun NotificationCompat.Builder.show(id: Int) {
++        context.notify(id, build())
++    }
++
++    fun showSyncProgress(content: String = "", progress: Int = 0, maxAmount: Int = 100): NotificationCompat.Builder {
++        val builder = with(progressNotificationBuilder) {
++            setContentTitle(context.getString(R.string.syncing_library))
++
++            if (!preferences.hideNotificationContent.get()) {
++                setContentText(content)
++            }
++
++            setProgress(maxAmount, progress, true)
++            setOnlyAlertOnce(true)
++
++            clearActions()
++            addAction(
++                R.drawable.ic_close_24dp,
++                context.getString(R.string.action_cancel),
++                NotificationReceiver.cancelSyncPendingBroadcast(context, Notifications.ID_RESTORE_PROGRESS),
++            )
++        }
++
++        builder.show(Notifications.ID_RESTORE_PROGRESS)
++
++        return builder
++    }
++
++    fun showSyncError(error: String?) {
++        context.cancelNotification(Notifications.ID_RESTORE_PROGRESS)
++
++        with(completeNotificationBuilder) {
++            setContentTitle(context.getString(R.string.sync_error))
++            setContentText(error)
++
++            show(Notifications.ID_RESTORE_COMPLETE)
++        }
++    }
++
++    fun showSyncSuccess(message: String?) {
++        context.cancelNotification(Notifications.ID_RESTORE_PROGRESS)
++
++        with(completeNotificationBuilder) {
++            setContentTitle(context.getString(R.string.sync_complete))
++            setContentText(message)
++
++            show(Notifications.ID_RESTORE_COMPLETE)
++        }
++    }
++}
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/data/sync/models/SyncTriggerOptions.kt b/app/src/main/java/eu/kanade/tachiyomi/data/sync/models/SyncTriggerOptions.kt
+new file mode 100644
+index 0000000..7d8a9bd
+--- /dev/null
++++ b/app/src/main/java/eu/kanade/tachiyomi/data/sync/models/SyncTriggerOptions.kt
+@@ -0,0 +1,63 @@
++package eu.kanade.tachiyomi.data.sync.models
++
++import dev.icerock.moko.resources.StringResource
++import kotlinx.collections.immutable.persistentListOf
++import tachiyomi.i18n.MR
++
++data class SyncTriggerOptions(
++    val syncOnChapterRead: Boolean = false,
++    val syncOnChapterOpen: Boolean = false,
++    val syncOnAppStart: Boolean = false,
++    val syncOnAppResume: Boolean = false,
++) {
++    fun asBooleanArray() = booleanArrayOf(
++        syncOnChapterRead,
++        syncOnChapterOpen,
++        syncOnAppStart,
++        syncOnAppResume,
++    )
++
++    fun anyEnabled() = syncOnChapterRead ||
++        syncOnChapterOpen ||
++        syncOnAppStart ||
++        syncOnAppResume
++
++    companion object {
++        val mainOptions = persistentListOf(
++            Entry(
++                label = MR.strings.sync_on_chapter_read,
++                getter = SyncTriggerOptions::syncOnChapterRead,
++                setter = { options, enabled -> options.copy(syncOnChapterRead = enabled) },
++            ),
++            Entry(
++                label = MR.strings.sync_on_chapter_open,
++                getter = SyncTriggerOptions::syncOnChapterOpen,
++                setter = { options, enabled -> options.copy(syncOnChapterOpen = enabled) },
++            ),
++            Entry(
++                label = MR.strings.sync_on_app_start,
++                getter = SyncTriggerOptions::syncOnAppStart,
++                setter = { options, enabled -> options.copy(syncOnAppStart = enabled) },
++            ),
++            Entry(
++                label = MR.strings.sync_on_app_resume,
++                getter = SyncTriggerOptions::syncOnAppResume,
++                setter = { options, enabled -> options.copy(syncOnAppResume = enabled) },
++            ),
++        )
++
++        fun fromBooleanArray(array: BooleanArray) = SyncTriggerOptions(
++            syncOnChapterRead = array[0],
++            syncOnChapterOpen = array[1],
++            syncOnAppStart = array[2],
++            syncOnAppResume = array[3],
++        )
++    }
++
++    data class Entry(
++        val label: StringResource,
++        val getter: (SyncTriggerOptions) -> Boolean,
++        val setter: (SyncTriggerOptions, Boolean) -> SyncTriggerOptions,
++        val enabled: (SyncTriggerOptions) -> Boolean = { true },
++    )
++}
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/data/sync/service/SyncService.kt b/app/src/main/java/eu/kanade/tachiyomi/data/sync/service/SyncService.kt
+new file mode 100644
+index 0000000..5278f39
+--- /dev/null
++++ b/app/src/main/java/eu/kanade/tachiyomi/data/sync/service/SyncService.kt
+@@ -0,0 +1,591 @@
++package eu.kanade.tachiyomi.data.sync.service
++
++import android.content.Context
++import eu.kanade.domain.sync.SyncPreferences
++import eu.kanade.tachiyomi.data.backup.models.Backup
++import eu.kanade.tachiyomi.data.backup.models.BackupCategory
++import eu.kanade.tachiyomi.data.backup.models.BackupChapter
++import eu.kanade.tachiyomi.data.backup.models.BackupManga
++import eu.kanade.tachiyomi.data.backup.models.BackupPreference
++import eu.kanade.tachiyomi.data.backup.models.BackupSavedSearch
++import eu.kanade.tachiyomi.data.backup.models.BackupSource
++import eu.kanade.tachiyomi.data.backup.models.BackupSourcePreferences
++import kotlinx.serialization.Serializable
++import kotlinx.serialization.json.Json
++import logcat.LogPriority
++import logcat.logcat
++import kotlin.time.Duration.Companion.milliseconds
++import kotlin.time.Duration.Companion.seconds
++
++@Serializable
++data class SyncData(
++    val deviceId: String = "",
++    val backup: Backup? = null,
++)
++
++abstract class SyncService(
++    val context: Context,
++    val json: Json,
++    val syncPreferences: SyncPreferences,
++) {
++    abstract suspend fun doSync(syncData: SyncData): Backup?
++
++    /**
++     * Merges the local and remote sync data into a single JSON string.
++     *
++     * @param localSyncData The SData containing the local sync data.
++     * @param remoteSyncData The SData containing the remote sync data.
++     * @return The JSON string containing the merged sync data.
++     */
++    protected fun mergeSyncData(localSyncData: SyncData, remoteSyncData: SyncData): SyncData {
++        val mergedCategoriesList =
++            mergeCategoriesLists(localSyncData.backup?.backupCategories, remoteSyncData.backup?.backupCategories)
++
++        val mergedMangaList = mergeMangaLists(
++            localSyncData.backup?.backupManga,
++            remoteSyncData.backup?.backupManga,
++            localSyncData.backup?.backupCategories ?: emptyList(),
++            remoteSyncData.backup?.backupCategories ?: emptyList(),
++            mergedCategoriesList,
++        )
++
++        val mergedSourcesList =
++            mergeSourcesLists(localSyncData.backup?.backupSources, remoteSyncData.backup?.backupSources)
++        val mergedPreferencesList =
++            mergePreferencesLists(localSyncData.backup?.backupPreferences, remoteSyncData.backup?.backupPreferences)
++        val mergedSourcePreferencesList = mergeSourcePreferencesLists(
++            localSyncData.backup?.backupSourcePreferences,
++            remoteSyncData.backup?.backupSourcePreferences,
++        )
++
++        // SY -->
++        val mergedSavedSearchesList = mergeSavedSearchesLists(
++            localSyncData.backup?.backupSavedSearches,
++            remoteSyncData.backup?.backupSavedSearches,
++        )
++        // SY <--
++
++        // Create the merged Backup object
++        val mergedBackup = Backup(
++            backupManga = mergedMangaList,
++            backupCategories = mergedCategoriesList,
++            backupSources = mergedSourcesList,
++            backupPreferences = mergedPreferencesList,
++            backupSourcePreferences = mergedSourcePreferencesList,
++
++            // SY -->
++            backupSavedSearches = mergedSavedSearchesList,
++            // SY <--
++        )
++
++        // Create the merged SData object
++        return SyncData(
++            deviceId = syncPreferences.uniqueDeviceID(),
++            backup = mergedBackup,
++        )
++    }
++
++    /**
++     * Merges two lists of BackupManga objects, selecting the most recent manga based on the lastModifiedAt value.
++     * If lastModifiedAt is null for a manga, it treats that manga as the oldest possible for comparison purposes.
++     * This function is designed to reconcile local and remote manga lists, ensuring the most up-to-date manga is retained.
++     *
++     * @param localMangaList The list of local BackupManga objects or null.
++     * @param remoteMangaList The list of remote BackupManga objects or null.
++     * @return A list of BackupManga objects, each representing the most recent version of the manga from either local or remote sources.
++     */
++    private fun mergeMangaLists(
++        localMangaList: List<BackupManga>?,
++        remoteMangaList: List<BackupManga>?,
++        localCategories: List<BackupCategory>,
++        remoteCategories: List<BackupCategory>,
++        mergedCategories: List<BackupCategory>,
++    ): List<BackupManga> {
++        val logTag = "MergeMangaLists"
++
++        val localMangaListSafe = localMangaList.orEmpty()
++        val remoteMangaListSafe = remoteMangaList.orEmpty()
++
++        logcat(LogPriority.DEBUG, logTag) {
++            "Starting merge. Local list size: ${localMangaListSafe.size}, Remote list size: ${remoteMangaListSafe.size}"
++        }
++
++        fun mangaCompositeKey(manga: BackupManga): String {
++            return "${manga.source}|${manga.url}|${manga.title.lowercase().trim()}|${manga.author?.lowercase()?.trim()}"
++        }
++
++        // Create maps using composite keys
++        val localMangaMap = localMangaListSafe.associateBy { mangaCompositeKey(it) }
++        val remoteMangaMap = remoteMangaListSafe.associateBy { mangaCompositeKey(it) }
++
++        val localCategoriesMapByOrder = localCategories.associateBy { it.order }
++        val remoteCategoriesMapByOrder = remoteCategories.associateBy { it.order }
++        val mergedCategoriesMapByName = mergedCategories.associateBy { it.name }
++
++        fun updateCategories(theManga: BackupManga, theMap: Map<Long, BackupCategory>): BackupManga {
++            return theManga.copy(
++                categories = theManga.categories.mapNotNull {
++                    theMap[it]?.let { category ->
++                        mergedCategoriesMapByName[category.name]?.order
++                    }
++                },
++            )
++        }
++
++        logcat(LogPriority.DEBUG, logTag) {
++            "Starting merge. Local list size: ${localMangaListSafe.size}, Remote list size: ${remoteMangaListSafe.size}"
++        }
++
++        val lastSyncTime = syncPreferences.lastSyncTimestamp.get().milliseconds.inWholeSeconds
++        val syncOptions = syncPreferences.getSyncSettings()
++
++        val mergedList = (localMangaMap.keys + remoteMangaMap.keys).distinct().mapNotNull { compositeKey ->
++            val local = localMangaMap[compositeKey]
++            val remote = remoteMangaMap[compositeKey]
++
++            // New version comparison logic
++            when {
++                local != null && remote == null -> {
++                    if (lastSyncTime == 0L || local.lastModifiedAt > lastSyncTime) {
++                        updateCategories(local, localCategoriesMapByOrder)
++                    } else {
++                        logcat(LogPriority.DEBUG, logTag) { "Dropping local manga deleted on remote: ${local.title}." }
++                        null
++                    }
++                }
++                local == null && remote != null -> {
++                    if (lastSyncTime == 0L || remote.lastModifiedAt > lastSyncTime) {
++                        updateCategories(remote, remoteCategoriesMapByOrder)
++                    } else {
++                        logcat(LogPriority.DEBUG, logTag) { "Dropping deleted remote manga: ${remote.title}." }
++                        null
++                    }
++                }
++                local != null && remote != null -> {
++                    // Compare versions to decide which manga to keep
++                    if (local.version >= remote.version) {
++                        logcat(LogPriority.DEBUG, logTag) {
++                            "Keeping local version of ${local.title} with merged chapters."
++                        }
++                        updateCategories(
++                            local.copy(chapters = mergeChapters(local.chapters, remote.chapters, lastSyncTime, syncOptions.chapters)),
++                            localCategoriesMapByOrder,
++                        )
++                    } else {
++                        logcat(LogPriority.DEBUG, logTag) {
++                            "Keeping remote version of ${remote.title} with merged chapters."
++                        }
++                        updateCategories(
++                            remote.copy(chapters = mergeChapters(local.chapters, remote.chapters, lastSyncTime, syncOptions.chapters)),
++                            remoteCategoriesMapByOrder,
++                        )
++                    }
++                }
++                else -> null // No manga found for key
++            }
++        }
++
++        // Counting favorites and non-favorites
++        val (favorites, nonFavorites) = mergedList.partition { it.favorite }
++
++        logcat(LogPriority.DEBUG, logTag) {
++            "Merge completed. Total merged manga: ${mergedList.size}, Favorites: ${favorites.size}, " +
++                "Non-Favorites: ${nonFavorites.size}"
++        }
++
++        return mergedList
++    }
++
++/**
++     * Merges two lists of BackupChapter objects, selecting the most recent chapter based on the lastModifiedAt value.
++     * If lastModifiedAt is null for a chapter, it treats that chapter as the oldest possible for comparison purposes.
++     * This function is designed to reconcile local and remote chapter lists, ensuring the most up-to-date chapter is retained.
++     *
++     * @param localChapters The list of local BackupChapter objects.
++     * @param remoteChapters The list of remote BackupChapter objects.
++     * @return A list of BackupChapter objects, each representing the most recent version of the chapter from either local or remote sources.
++     *
++     * - This function is used in scenarios where local and remote chapter lists need to be synchronized.
++     * - It iterates over the union of the URLs from both local and remote chapters.
++     * - For each URL, it compares the corresponding local and remote chapters based on the lastModifiedAt value.
++     * - If only one source (local or remote) has the chapter for a URL, that chapter is used.
++     * - If both sources have the chapter, the one with the more recent lastModifiedAt value is chosen.
++     * - If lastModifiedAt is null or missing, the chapter is considered the oldest for safety, ensuring that any chapter with a valid timestamp is preferred.
++     * - The resulting list contains the most recent chapters from the combined set of local and remote chapters.
++     */
++    private fun mergeChapters(
++        localChapters: List<BackupChapter>,
++        remoteChapters: List<BackupChapter>,
++        lastSyncTime: Long,
++        syncingChapters: Boolean,
++    ): List<BackupChapter> {
++        val logTag = "MergeChapters"
++
++        if (!syncingChapters) {
++            return remoteChapters // If not syncing chapters, keep remote untouched
++        }
++
++        fun chapterCompositeKey(chapter: BackupChapter): String {
++            return "${chapter.url}|${chapter.name}|${chapter.chapterNumber}"
++        }
++
++        val localChapterMap = localChapters.associateBy { chapterCompositeKey(it) }
++        val remoteChapterMap = remoteChapters.associateBy { chapterCompositeKey(it) }
++
++        logcat(LogPriority.DEBUG, logTag) {
++            "Starting chapter merge. Local chapters: ${localChapters.size}, Remote chapters: ${remoteChapters.size}"
++        }
++
++        // Merge both chapter maps based on version numbers
++        val mergedChapters = (localChapterMap.keys + remoteChapterMap.keys).distinct().mapNotNull { compositeKey ->
++            val localChapter = localChapterMap[compositeKey]
++            val remoteChapter = remoteChapterMap[compositeKey]
++
++            logcat(LogPriority.DEBUG, logTag) {
++                "Processing chapter key: $compositeKey. Local chapter: ${localChapter != null}, " +
++                    "Remote chapter: ${remoteChapter != null}"
++            }
++
++            when {
++                localChapter != null && remoteChapter == null -> {
++                    if (lastSyncTime == 0L || localChapter.lastModifiedAt > lastSyncTime) {
++                        logcat(LogPriority.DEBUG, logTag) { "Keeping local chapter: ${localChapter.name}." }
++                        localChapter
++                    } else {
++                        logcat(LogPriority.DEBUG, logTag) { "Dropping local chapter deleted on remote: ${localChapter.name}." }
++                        null
++                    }
++                }
++                localChapter == null && remoteChapter != null -> {
++                    if (lastSyncTime == 0L || remoteChapter.lastModifiedAt > lastSyncTime) {
++                        logcat(LogPriority.DEBUG, logTag) { "Taking remote chapter: ${remoteChapter.name}." }
++                        remoteChapter
++                    } else {
++                        logcat(LogPriority.DEBUG, logTag) { "Dropping deleted remote chapter: ${remoteChapter.name}." }
++                        null
++                    }
++                }
++                localChapter != null && remoteChapter != null -> {
++                    // Use version number to decide which chapter to keep
++                    val chosenChapter = if (localChapter.version >= remoteChapter.version) {
++                        // If there mare more chapter on remote, local sourceOrder will need to be updated to maintain correct source order.
++                        if (localChapters.size < remoteChapters.size) {
++                            localChapter.copy(sourceOrder = remoteChapter.sourceOrder)
++                        } else {
++                            localChapter
++                        }
++                    } else {
++                        remoteChapter
++                    }
++                    logcat(LogPriority.DEBUG, logTag) {
++                        "Merging chapter: ${chosenChapter.name}. Chosen version from: ${
++                            if (localChapter.version >= remoteChapter.version) "Local" else "Remote"
++                        }, Local version: ${localChapter.version}, Remote version: ${remoteChapter.version}."
++                    }
++                    chosenChapter
++                }
++                else -> {
++                    logcat(LogPriority.DEBUG, logTag) {
++                        "No chapter found for composite key: $compositeKey. Skipping."
++                    }
++                    null
++                }
++            }
++        }
++
++        logcat(LogPriority.DEBUG, logTag) { "Chapter merge completed. Total merged chapters: ${mergedChapters.size}" }
++
++        return mergedChapters
++    }
++
++    /**
++     * Merges two lists of SyncCategory objects, prioritizing the category with the most recent order value.
++     *
++     * @param localCategoriesList The list of local SyncCategory objects.
++     * @param remoteCategoriesList The list of remote SyncCategory objects.
++     * @return The merged list of SyncCategory objects.
++     */
++    private fun mergeCategoriesLists(
++        localCategoriesList: List<BackupCategory>?,
++        remoteCategoriesList: List<BackupCategory>?,
++    ): List<BackupCategory> {
++        val logTag = "MergeCategories"
++        if (localCategoriesList == null) return remoteCategoriesList ?: emptyList()
++        if (remoteCategoriesList == null) return localCategoriesList
++
++        val result = mutableListOf<BackupCategory>()
++        val processedLocals = mutableSetOf<BackupCategory>()
++
++        val localMapByUid = localCategoriesList.filter { it.uid != 0L }.associateBy { it.uid }
++        val localMapByName = localCategoriesList.associateBy { it.name }
++
++        val lastSyncTime = syncPreferences.lastSyncTimestamp.get()
++
++        remoteCategoriesList.forEach { remote ->
++            var localMatch: BackupCategory? = null
++
++            // 1. Try match by UID
++            if (remote.uid != 0L) {
++                localMatch = localMapByUid[remote.uid]
++            }
++
++            // 2. Try match by Name (fallback)
++            if (localMatch == null) {
++                localMatch = localMapByName[remote.name]
++            }
++
++            if (localMatch != null) {
++                processedLocals.add(localMatch)
++                // Conflict resolution
++                if (localMatch.version >= remote.version) {
++                    logcat(LogPriority.DEBUG, logTag) { "Keeping local category: ${localMatch.name} (UID: ${localMatch.uid})" }
++                    result.add(localMatch)
++                } else {
++                    logcat(LogPriority.DEBUG, logTag) { "Keeping remote category: ${remote.name} (UID: ${remote.uid})" }
++                    // Preserve Local UID if Remote was 0
++                    if (remote.uid == 0L) {
++                        remote.uid = localMatch.uid
++                    }
++                    result.add(remote)
++                }
++            } else {
++                val remoteModifiedTimeMillis = remote.lastModifiedAt.seconds.inWholeMilliseconds
++                if (lastSyncTime == 0L || remoteModifiedTimeMillis > lastSyncTime) {
++                    logcat(LogPriority.DEBUG, logTag) { "Adding new remote category: ${remote.name} (UID: ${remote.uid})" }
++                    result.add(remote)
++                } else {
++                    logcat(LogPriority.DEBUG, logTag) { "Dropping deleted remote category: ${remote.name} (UID: ${remote.uid})" }
++                }
++            }
++        }
++
++        // Add remaining Local Categories
++        localCategoriesList.forEach { local ->
++            if (local !in processedLocals) {
++                val localModifiedTimeMillis = local.lastModifiedAt.seconds.inWholeMilliseconds
++                if (lastSyncTime == 0L || localModifiedTimeMillis > lastSyncTime) {
++                    logcat(LogPriority.DEBUG, logTag) { "Keeping local only category: ${local.name} (UID: ${local.uid})" }
++                    result.add(local)
++                } else {
++                    logcat(LogPriority.DEBUG, logTag) { "Dropping local category deleted on remote: ${local.name} (UID: ${local.uid})" }
++                }
++            }
++        }
++
++        return result.sortedBy { it.order }
++    }
++
++    private fun mergeSourcesLists(
++        localSources: List<BackupSource>?,
++        remoteSources: List<BackupSource>?,
++    ): List<BackupSource> {
++        val logTag = "MergeSources"
++
++        // Create maps using sourceId as key
++        val localSourceMap = localSources?.associateBy { it.sourceId } ?: emptyMap()
++        val remoteSourceMap = remoteSources?.associateBy { it.sourceId } ?: emptyMap()
++
++        logcat(LogPriority.DEBUG, logTag) {
++            "Starting source merge. Local sources: ${localSources?.size}, Remote sources: ${remoteSources?.size}"
++        }
++
++        // Merge both source maps
++        val mergedSources = (localSourceMap.keys + remoteSourceMap.keys).distinct().mapNotNull { sourceId ->
++            val localSource = localSourceMap[sourceId]
++            val remoteSource = remoteSourceMap[sourceId]
++
++            logcat(LogPriority.DEBUG, logTag) {
++                "Processing source ID: $sourceId. Local source: ${localSource != null}, " +
++                    "Remote source: ${remoteSource != null}"
++            }
++
++            when {
++                localSource != null && remoteSource == null -> {
++                    logcat(LogPriority.DEBUG, logTag) { "Using local source: ${localSource.name}." }
++                    localSource
++                }
++                remoteSource != null && localSource == null -> {
++                    logcat(LogPriority.DEBUG, logTag) { "Using remote source: ${remoteSource.name}." }
++                    remoteSource
++                }
++                else -> {
++                    logcat(LogPriority.DEBUG, logTag) { "Remote and local have the same source ID: $sourceId. Keeping local." }
++                    localSource
++                }
++            }
++        }
++
++        logcat(LogPriority.DEBUG, logTag) { "Source merge completed. Total merged sources: ${mergedSources.size}" }
++
++        return mergedSources
++    }
++
++    private fun mergePreferencesLists(
++        localPreferences: List<BackupPreference>?,
++        remotePreferences: List<BackupPreference>?,
++    ): List<BackupPreference> {
++        val logTag = "MergePreferences"
++
++        // Create maps using key as the unique identifier
++        val localPreferencesMap = localPreferences?.associateBy { it.key } ?: emptyMap()
++        val remotePreferencesMap = remotePreferences?.associateBy { it.key } ?: emptyMap()
++
++        logcat(LogPriority.DEBUG, logTag) {
++            "Starting preferences merge. Local preferences: ${localPreferences?.size}, " +
++                "Remote preferences: ${remotePreferences?.size}"
++        }
++
++        // Merge both preferences maps
++        val mergedPreferences = (localPreferencesMap.keys + remotePreferencesMap.keys).distinct().mapNotNull { key ->
++            val localPreference = localPreferencesMap[key]
++            val remotePreference = remotePreferencesMap[key]
++
++            logcat(LogPriority.DEBUG, logTag) {
++                "Processing preference key: $key. Local preference: ${localPreference != null}, " +
++                    "Remote preference: ${remotePreference != null}"
++            }
++
++            when {
++                localPreference != null && remotePreference == null -> {
++                    logcat(LogPriority.DEBUG, logTag) { "Using local preference: ${localPreference.key}." }
++                    localPreference
++                }
++                remotePreference != null && localPreference == null -> {
++                    logcat(LogPriority.DEBUG, logTag) { "Using remote preference: ${remotePreference.key}." }
++                    remotePreference
++                }
++                else -> {
++                    logcat(LogPriority.DEBUG, logTag) { "Both remote and local have the same preference key: $key. Keeping local." }
++                    localPreference
++                }
++            }
++        }
++
++        logcat(LogPriority.DEBUG, logTag) {
++            "Preferences merge completed. Total merged preferences: ${mergedPreferences.size}"
++        }
++
++        return mergedPreferences
++    }
++
++    private fun mergeSourcePreferencesLists(
++        localPreferences: List<BackupSourcePreferences>?,
++        remotePreferences: List<BackupSourcePreferences>?,
++    ): List<BackupSourcePreferences> {
++        val logTag = "MergeSourcePreferences"
++
++        // Create maps using sourceKey as the unique identifier
++        val localPreferencesMap = localPreferences?.associateBy { it.sourceKey } ?: emptyMap()
++        val remotePreferencesMap = remotePreferences?.associateBy { it.sourceKey } ?: emptyMap()
++
++        logcat(LogPriority.DEBUG, logTag) {
++            "Starting source preferences merge. Local source preferences: ${localPreferences?.size}, " +
++                "Remote source preferences: ${remotePreferences?.size}"
++        }
++
++        // Merge both source preferences maps
++        val mergedSourcePreferences = (localPreferencesMap.keys + remotePreferencesMap.keys).distinct()
++            .mapNotNull { sourceKey ->
++                val localSourcePreference = localPreferencesMap[sourceKey]
++                val remoteSourcePreference = remotePreferencesMap[sourceKey]
++
++                logcat(LogPriority.DEBUG, logTag) {
++                    "Processing source preference key: $sourceKey. " +
++                        "Local source preference: ${localSourcePreference != null}, " +
++                        "Remote source preference: ${remoteSourcePreference != null}"
++                }
++
++                when {
++                    localSourcePreference != null && remoteSourcePreference == null -> {
++                        logcat(LogPriority.DEBUG, logTag) {
++                            "Using local source preference: ${localSourcePreference.sourceKey}."
++                        }
++                        localSourcePreference
++                    }
++                    remoteSourcePreference != null && localSourcePreference == null -> {
++                        logcat(LogPriority.DEBUG, logTag) {
++                            "Using remote source preference: ${remoteSourcePreference.sourceKey}."
++                        }
++                        remoteSourcePreference
++                    }
++                    localSourcePreference != null && remoteSourcePreference != null -> {
++                        // Merge the individual preferences within the source preferences
++                        val mergedPrefs =
++                            mergeIndividualPreferences(localSourcePreference.prefs, remoteSourcePreference.prefs)
++                        BackupSourcePreferences(sourceKey, mergedPrefs)
++                    }
++                    else -> null
++                }
++            }
++
++        logcat(LogPriority.DEBUG, logTag) {
++            "Source preferences merge completed. Total merged source preferences: ${mergedSourcePreferences.size}"
++        }
++
++        return mergedSourcePreferences
++    }
++
++    private fun mergeIndividualPreferences(
++        localPrefs: List<BackupPreference>,
++        remotePrefs: List<BackupPreference>,
++    ): List<BackupPreference> {
++        val mergedPrefsMap = (localPrefs + remotePrefs).associateBy { it.key }
++        return mergedPrefsMap.values.toList()
++    }
++
++    // SY -->
++    private fun mergeSavedSearchesLists(
++        localSearches: List<BackupSavedSearch>?,
++        remoteSearches: List<BackupSavedSearch>?,
++    ): List<BackupSavedSearch> {
++        val logTag = "MergeSavedSearches"
++
++        // Define a function to create a composite key from a BackupSavedSearch
++        fun searchCompositeKey(search: BackupSavedSearch): String {
++            return "${search.name}|${search.source}"
++        }
++
++        // Create maps using the composite key
++        val localSearchMap = localSearches?.associateBy { searchCompositeKey(it) } ?: emptyMap()
++        val remoteSearchMap = remoteSearches?.associateBy { searchCompositeKey(it) } ?: emptyMap()
++
++        logcat(LogPriority.DEBUG, logTag) {
++            "Starting saved searches merge. Local saved searches: ${localSearches?.size}, " +
++                "Remote saved searches: ${remoteSearches?.size}"
++        }
++
++        // Merge both saved searches maps
++        val mergedSearches = (localSearchMap.keys + remoteSearchMap.keys).distinct().mapNotNull { compositeKey ->
++            val localSearch = localSearchMap[compositeKey]
++            val remoteSearch = remoteSearchMap[compositeKey]
++
++            logcat(LogPriority.DEBUG, logTag) {
++                "Processing saved search key: $compositeKey. Local search: ${localSearch != null}, " +
++                    "Remote search: ${remoteSearch != null}"
++            }
++
++            when {
++                localSearch != null && remoteSearch == null -> {
++                    logcat(LogPriority.DEBUG, logTag) { "Using local saved search: ${localSearch.name}." }
++                    localSearch
++                }
++                remoteSearch != null && localSearch == null -> {
++                    logcat(LogPriority.DEBUG, logTag) { "Using remote saved search: ${remoteSearch.name}." }
++                    remoteSearch
++                }
++
++                else -> {
++                    logcat(LogPriority.DEBUG, logTag) { "Both remote and local have the same saved search key: $compositeKey. Keeping local." }
++                    localSearch
++                }
++            }
++        }
++
++        logcat(LogPriority.DEBUG, logTag) {
++            "Saved searches merge completed. Total merged saved searches: ${mergedSearches.size}"
++        }
++
++        return mergedSearches
++    }
++    // SY <--
++}
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/data/sync/service/SyncYomiSyncService.kt b/app/src/main/java/eu/kanade/tachiyomi/data/sync/service/SyncYomiSyncService.kt
+new file mode 100644
+index 0000000..5d0447f
+--- /dev/null
++++ b/app/src/main/java/eu/kanade/tachiyomi/data/sync/service/SyncYomiSyncService.kt
+@@ -0,0 +1,248 @@
++package eu.kanade.tachiyomi.data.sync.service
++
++import android.content.Context
++import eu.kanade.domain.sync.SyncPreferences
++import eu.kanade.tachiyomi.data.backup.models.Backup
++import eu.kanade.tachiyomi.data.sync.SyncNotifier
++import eu.kanade.tachiyomi.network.GET
++import eu.kanade.tachiyomi.network.POST
++import eu.kanade.tachiyomi.network.PUT
++import eu.kanade.tachiyomi.network.await
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.NonCancellable
++import kotlinx.coroutines.withContext
++import kotlinx.serialization.SerialName
++import kotlinx.serialization.Serializable
++import kotlinx.serialization.SerializationException
++import kotlinx.serialization.json.Json
++import kotlinx.serialization.protobuf.ProtoBuf
++import logcat.LogPriority
++import logcat.logcat
++import okhttp3.Headers
++import okhttp3.MediaType.Companion.toMediaType
++import okhttp3.OkHttpClient
++import okhttp3.RequestBody.Companion.toRequestBody
++import org.apache.http.HttpStatus
++import tachiyomi.core.common.i18n.stringResource
++import tachiyomi.i18n.MR
++import uy.kohesive.injekt.Injekt
++import uy.kohesive.injekt.api.get
++import java.util.concurrent.TimeUnit
++
++class SyncYomiSyncService(
++    context: Context,
++    json: Json,
++    syncPreferences: SyncPreferences,
++    private val notifier: SyncNotifier,
++
++    private val protoBuf: ProtoBuf = Injekt.get(),
++) : SyncService(context, json, syncPreferences) {
++
++    private class SyncYomiException(message: String?) : Exception(message)
++
++    @Serializable
++    private data class SyncEvent(
++        val event: SyncEventStatus,
++        @SerialName("device_name")
++        val deviceName: String? = null,
++        val message: String? = null,
++    )
++
++    @Serializable
++    private enum class SyncEventStatus {
++        SYNC_STARTED,
++        SYNC_SUCCESS,
++        SYNC_FAILED,
++        SYNC_ERROR,
++        SYNC_CANCELLED,
++    }
++
++    override suspend fun doSync(syncData: SyncData): Backup? {
++        reportSyncEvent(SyncEventStatus.SYNC_STARTED)
++
++        try {
++            val (remoteData, etag) = pullSyncData()
++
++            val finalSyncData = if (remoteData != null) {
++                assert(etag.isNotEmpty()) { "ETag should never be empty if remote data is not null" }
++                logcat(LogPriority.DEBUG, "SyncService") {
++                    "Try update remote data with ETag($etag)"
++                }
++                mergeSyncData(syncData, remoteData)
++            } else {
++                // init or overwrite remote data
++                logcat(LogPriority.DEBUG) {
++                    "Try overwrite remote data with ETag($etag)"
++                }
++                syncData
++            }
++
++            val success = pushSyncData(finalSyncData, etag)
++
++            if (success) {
++                reportSyncEvent(SyncEventStatus.SYNC_SUCCESS)
++            } else {
++                reportSyncEvent(SyncEventStatus.SYNC_FAILED, "Failed to push sync data")
++            }
++
++            return finalSyncData.backup
++        } catch (e: Exception) {
++            if (e is CancellationException) {
++                reportSyncEvent(SyncEventStatus.SYNC_CANCELLED, e.message)
++                throw e
++            }
++            logcat(LogPriority.ERROR) { "Error syncing: ${e.message}" }
++            notifier.showSyncError(e.message)
++            reportSyncEvent(SyncEventStatus.SYNC_ERROR, e.message)
++            return null
++        }
++    }
++
++    private suspend fun pullSyncData(): Pair<SyncData?, String> {
++        val host = syncPreferences.clientHost.get()
++        val apiKey = syncPreferences.clientAPIKey.get()
++        val downloadUrl = "$host/api/sync/content"
++
++        val headersBuilder = Headers.Builder().add("X-API-Token", apiKey)
++        val lastETag = syncPreferences.lastSyncEtag.get()
++        if (lastETag != "") {
++            headersBuilder.add("If-None-Match", lastETag)
++        }
++        val headers = headersBuilder.build()
++
++        val downloadRequest = GET(
++            url = downloadUrl,
++            headers = headers,
++        )
++
++        val client = OkHttpClient()
++        val response = client.newCall(downloadRequest).await()
++
++        if (response.code == HttpStatus.SC_NOT_MODIFIED) {
++            // not modified
++            assert(lastETag.isNotEmpty())
++            logcat(LogPriority.INFO) {
++                "Remote server not modified"
++            }
++            return Pair(null, lastETag)
++        } else if (response.code == HttpStatus.SC_NOT_FOUND) {
++            // maybe got deleted from remote
++            return Pair(null, "")
++        }
++
++        if (response.isSuccessful) {
++            val newETag = response.headers["ETag"]
++                .takeIf { it?.isNotEmpty() == true } ?: throw SyncYomiException("Missing ETag")
++
++            val byteArray = response.body.byteStream().use {
++                return@use it.readBytes()
++            }
++
++            return try {
++                val backup = protoBuf.decodeFromByteArray(Backup.serializer(), byteArray)
++                return Pair(SyncData(backup = backup), newETag)
++            } catch (_: SerializationException) {
++                logcat(LogPriority.INFO) {
++                    "Bad content responsed from server"
++                }
++                // the body is invalid
++                // return default value so we can overwrite it
++                Pair(null, "")
++            }
++        } else {
++            val responseBody = response.body.string()
++            notifier.showSyncError("Failed to download sync data: $responseBody")
++            logcat(LogPriority.ERROR) { "SyncError: $responseBody" }
++            throw SyncYomiException("Failed to download sync data: $responseBody")
++        }
++    }
++
++    /**
++     * Return true if update success
++     */
++    private suspend fun pushSyncData(syncData: SyncData, eTag: String): Boolean {
++        val backup = syncData.backup ?: return true
++
++        val host = syncPreferences.clientHost.get()
++        val apiKey = syncPreferences.clientAPIKey.get()
++        val uploadUrl = "$host/api/sync/content"
++        val timeout = 30L
++
++        val headersBuilder = Headers.Builder().add("X-API-Token", apiKey)
++        if (eTag.isNotEmpty()) {
++            headersBuilder.add("If-Match", eTag)
++        }
++        val headers = headersBuilder.build()
++
++        // Set timeout to 30 seconds
++        val client = OkHttpClient.Builder()
++            .connectTimeout(timeout, TimeUnit.SECONDS)
++            .readTimeout(timeout, TimeUnit.SECONDS)
++            .writeTimeout(timeout, TimeUnit.SECONDS)
++            .build()
++
++        val byteArray = protoBuf.encodeToByteArray(Backup.serializer(), backup)
++        if (byteArray.isEmpty()) {
++            throw IllegalStateException(context.stringResource(MR.strings.empty_backup_error))
++        }
++        val body = byteArray.toRequestBody("application/octet-stream".toMediaType())
++
++        val uploadRequest = PUT(
++            url = uploadUrl,
++            headers = headers,
++            body = body,
++        )
++
++        val response = client.newCall(uploadRequest).await()
++
++        if (response.isSuccessful) {
++            val newETag = response.headers["ETag"]
++                .takeIf { it?.isNotEmpty() == true } ?: throw SyncYomiException("Missing ETag")
++            syncPreferences.lastSyncEtag.set(newETag)
++            logcat(LogPriority.DEBUG) { "SyncYomi sync completed" }
++            return true
++        } else if (response.code == HttpStatus.SC_PRECONDITION_FAILED) {
++            // other clients updated remote data, will try next time
++            logcat(LogPriority.DEBUG) { "SyncYomi sync failed with 412" }
++            return false
++        } else {
++            val responseBody = response.body.string()
++            notifier.showSyncError("Failed to upload sync data: $responseBody")
++            logcat(LogPriority.ERROR) { "SyncError: $responseBody" }
++            return false
++        }
++    }
++
++    private suspend fun reportSyncEvent(event: SyncEventStatus, message: String? = null) {
++        withContext(NonCancellable) {
++            try {
++                val host = syncPreferences.clientHost.get()
++                val apiKey = syncPreferences.clientAPIKey.get()
++                val url = "$host/api/sync/event"
++
++                val headersBuilder = Headers.Builder().add("X-API-Token", apiKey)
++                val headers = headersBuilder.build()
++
++                val bodyObj = SyncEvent(
++                    event = event,
++                    deviceName = android.os.Build.MODEL,
++                    message = message,
++                )
++
++                val jsonBody = json.encodeToString(SyncEvent.serializer(), bodyObj)
++                val requestBody = jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType())
++
++                val request = POST(
++                    url = url,
++                    headers = headers,
++                    body = requestBody,
++                )
++
++                val client = OkHttpClient()
++                client.newCall(request).await().close()
++            } catch (e: Exception) {
++                logcat(LogPriority.ERROR) { "Failed to report sync event: ${e.message}" }
++            }
++        }
++    }
++}
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/di/PreferenceModule.kt b/app/src/main/java/eu/kanade/tachiyomi/di/PreferenceModule.kt
+index 7b01ed4..5ee442f 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/di/PreferenceModule.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/di/PreferenceModule.kt
+@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.di
+ import android.app.Application
+ import eu.kanade.domain.base.BasePreferences
+ import eu.kanade.domain.source.service.SourcePreferences
++import eu.kanade.domain.sync.SyncPreferences
+ import eu.kanade.domain.track.service.TrackPreferences
+ import eu.kanade.domain.ui.UiPreferences
+ import eu.kanade.tachiyomi.core.security.PrivacyPreferences
+@@ -74,5 +75,8 @@ class PreferenceModule(val app: Application) : InjektModule {
+         addSingletonFactory {
+             BasePreferences(app, get())
+         }
++        addSingletonFactory {
++            SyncPreferences(get())
++        }
+     }
+ }
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
+index e7670b3..6353251 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
+@@ -163,7 +163,9 @@ class ReaderActivity : BaseActivity() {
+             isEnabled = { isPanelReadingActive() },
+             readingDirection = {
+                 val mode = ReadingMode.fromPreference(viewModel.getMangaReadingMode(resolveDefault = true))
+-                if (mode == ReadingMode.RIGHT_TO_LEFT) {
++                if (mode == ReadingMode.LEFT_TO_RIGHT) {
++                    PanelReadingDirection.RIGHT_TO_LEFT
++                } else if (mode == ReadingMode.RIGHT_TO_LEFT) {
+                     PanelReadingDirection.RIGHT_TO_LEFT
+                 } else {
+                     PanelReadingDirection.LEFT_TO_RIGHT
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
+index f6a5474..51f1218 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
+@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import eu.kanade.domain.base.BasePreferences
+ import eu.kanade.domain.chapter.model.toDbChapter
++import eu.kanade.domain.sync.SyncPreferences
+ import eu.kanade.domain.manga.interactor.SetMangaViewerFlags
+ import eu.kanade.domain.manga.model.readerOrientation
+ import eu.kanade.domain.manga.model.readingMode
+@@ -19,6 +20,7 @@ import eu.kanade.tachiyomi.data.database.models.toDomainChapter
+ import eu.kanade.tachiyomi.data.download.DownloadManager
+ import eu.kanade.tachiyomi.data.download.DownloadProvider
+ import eu.kanade.tachiyomi.data.download.model.Download
++import eu.kanade.tachiyomi.data.sync.SyncDataJob
+ import eu.kanade.tachiyomi.data.saver.Image
+ import eu.kanade.tachiyomi.data.saver.ImageSaver
+ import eu.kanade.tachiyomi.data.saver.Location
+@@ -92,6 +94,7 @@ class ReaderViewModel @JvmOverloads constructor(
+     private val basePreferences: BasePreferences = Injekt.get(),
+     private val downloadPreferences: DownloadPreferences = Injekt.get(),
+     private val trackPreferences: TrackPreferences = Injekt.get(),
++    private val syncPreferences: SyncPreferences = Injekt.get(),
+     private val trackChapter: TrackChapter = Injekt.get(),
+     private val getManga: GetManga = Injekt.get(),
+     private val getChaptersByMangaId: GetChaptersByMangaId = Injekt.get(),
+@@ -548,6 +551,12 @@ class ReaderViewModel @JvmOverloads constructor(
+ 
+             if (readerChapter.pages?.lastIndex == pageIndex) {
+                 updateChapterProgressOnComplete(readerChapter)
++
++                val isSyncEnabled = syncPreferences.isSyncEnabled()
++                val syncTriggerOpt = syncPreferences.getSyncTriggerOptions()
++                if (isSyncEnabled && syncTriggerOpt.syncOnChapterRead) {
++                    SyncDataJob.startNow(Injekt.get<Application>())
++                }
+             }
+ 
+             updateChapter.await(
+@@ -557,6 +566,12 @@ class ReaderViewModel @JvmOverloads constructor(
+                     lastPageRead = readerChapter.chapter.last_page_read.toLong(),
+                 ),
+             )
++
++            val isSyncEnabled = syncPreferences.isSyncEnabled()
++            val syncTriggerOpt = syncPreferences.getSyncTriggerOptions()
++            if (isSyncEnabled && syncTriggerOpt.syncOnChapterOpen && readerChapter.chapter.last_page_read == 0) {
++                SyncDataJob.startNow(Injekt.get<Application>())
++            }
+         }
+     }
+ 
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/panel/PanelSorter.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/panel/PanelSorter.kt
+index 309385e..895ed45 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/panel/PanelSorter.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/panel/PanelSorter.kt
+@@ -20,13 +20,19 @@ object PanelSorter {
+         val rowTolerance = valid
+             .map { it.height }
+             .sorted()
+-            .let { heights -> heights[heights.lastIndex / 2] * 0.5f }
++            .let { heights -> heights[heights.lastIndex / 2] * 0.75f }
+             .coerceAtLeast(MIN_ROW_TOLERANCE)
+ 
+         val rows = mutableListOf<MutableList<ReaderPanel>>()
+         valid.forEach { panel ->
+             val row = rows.firstOrNull { existing ->
+-                abs(existing.averageCenterY() - panel.centerY) <= rowTolerance
++                // Primary: panels overlap vertically (share any vertical extent)
++                val rowTop = existing.minOf { it.bounds.top }
++                val rowBottom = existing.maxOf { it.bounds.bottom }
++                val verticalOverlap = panel.bounds.top < rowBottom && panel.bounds.bottom > rowTop
++                // Fallback: centers are within tolerance (catches staggered panels)
++                val centerClose = abs(existing.averageCenterY() - panel.centerY) <= rowTolerance
++                verticalOverlap || centerClose
+             }
+             if (row != null) {
+                 row += panel
+@@ -93,7 +99,7 @@ object PanelSorter {
+ 
+     private const val MIN_PANEL_SIZE = 8f
+     private const val MIN_ROW_TOLERANCE = 24f
+-    private const val DUPLICATE_IOU_THRESHOLD = 0.72f
++    private const val DUPLICATE_IOU_THRESHOLD = 0.55f
+     private const val CONTAINED_DUPLICATE_COVERAGE_THRESHOLD = 0.9f
+     private const val CONTAINED_DUPLICATE_SIZE_RATIO_THRESHOLD = 0.65f
+ }
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/panel/YoloPanelPostProcessor.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/panel/YoloPanelPostProcessor.kt
+index ffd59b1..3b84b81 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/panel/YoloPanelPostProcessor.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/panel/YoloPanelPostProcessor.kt
+@@ -12,7 +12,7 @@ object YoloPanelPostProcessor {
+         detections: List<FloatArray>,
+         transform: PanelModelTransform,
+         confidenceThreshold: Float = 0.25f,
+-        nmsIouThreshold: Float = 0.5f,
++        nmsIouThreshold: Float = 0.35f,
+     ): List<ReaderPanel> {
+         val candidates = detections
+             .asSequence()
+diff --git a/i18n/src/commonMain/moko-resources/base/strings.xml b/i18n/src/commonMain/moko-resources/base/strings.xml
+index 16a6a78..25ffd49 100644
+--- a/i18n/src/commonMain/moko-resources/base/strings.xml
++++ b/i18n/src/commonMain/moko-resources/base/strings.xml
+@@ -566,6 +566,35 @@
+     <string name="pref_auto_update_manga_sync">Update progress after reading</string>
+     <string name="pref_auto_update_manga_on_mark_read">Update progress when marked as read</string>
+     <string name="pref_auto_sync_read_chapters">Auto sync read chapters from Trackers</string>
++
++    <!-- SyncYomi -->
++    <string name="pref_sync_service_category">Sync</string>
++    <string name="pref_sync_service">Service</string>
++    <string name="pref_sync_host">Host</string>
++    <string name="pref_sync_host_summ">Enter the host address for synchronizing your library</string>
++    <string name="pref_sync_api_key">API key</string>
++    <string name="pref_sync_api_key_summ">Enter the API key to synchronize your library</string>
++    <string name="pref_sync_now_group_title">Sync Actions</string>
++    <string name="pref_sync_now">Sync now</string>
++    <string name="pref_sync_now_subtitle">Initiate immediate synchronization of your data</string>
++    <string name="pref_sync_automatic_category">Automatic Synchronization</string>
++    <string name="pref_sync_interval">Synchronization frequency</string>
++    <string name="pref_choose_what_to_sync">Choose what to sync</string>
++    <string name="pref_sync_options">Create sync triggers</string>
++    <string name="pref_sync_options_summ">Can be used to set sync triggers</string>
++    <string name="syncyomi">SyncYomi</string>
++    <string name="sync_in_progress">Sync is already in progress</string>
++    <string name="last_synchronization">Last Synchronization: %1$s</string>
++    <string name="sync_on_chapter_read">Sync on chapter read</string>
++    <string name="sync_on_chapter_open">Sync on chapter open</string>
++    <string name="sync_on_app_start">Sync on app start</string>
++    <string name="sync_on_app_resume">Sync on app resume</string>
++    <string name="sync_on_library_update">Sync on library update</string>
++    <string name="label_triggers">Triggers</string>
++    <string name="sync_on_chapter_read">Sync on Chapter Read</string>
++    <string name="sync_on_chapter_open">Sync on Chapter Open</string>
++    <string name="sync_on_app_start">Sync on App Start</string>
++    <string name="sync_on_app_resume">Sync on App Resume</string>
+     <string name="services">Trackers</string>
+     <string name="tracking_info">One-way sync to update the chapter progress in external tracker services. Set up tracking for individual entries from their tracking button.</string>
+     <string name="enhanced_services">Enhanced trackers</string>
+-- 
+2.43.0
+
