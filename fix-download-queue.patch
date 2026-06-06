@@ -1,0 +1,94 @@
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/download/DownloadQueueScreen.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/download/DownloadQueueScreen.kt
+index 82c67c4..19fafd8 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/ui/download/DownloadQueueScreen.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/ui/download/DownloadQueueScreen.kt
+@@ -1,8 +1,6 @@
+ package eu.kanade.tachiyomi.ui.download
+ 
+-import android.view.ContextThemeWrapper
+ import android.view.LayoutInflater
+-import eu.kanade.tachiyomi.R
+ import androidx.compose.foundation.isSystemInDarkTheme
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Row
+@@ -74,7 +72,7 @@ object DownloadQueueScreen : Screen() {
+             }
+         }
+         val scope = rememberCoroutineScope()
+-        val screenModel = rememberScreenModel { DownloadQueueScreenModel() }
++        val screenModel = rememberScreenModel { DownloadQueueScreenModel(navigator = navigator) }
+         val downloadList by screenModel.state.collectAsState()
+         val downloadCount by remember {
+             derivedStateOf { downloadList.sumOf { it.subItems.size } }
+@@ -259,12 +257,7 @@ object DownloadQueueScreen : Screen() {
+                 AndroidView(
+                     modifier = Modifier.fillMaxWidth(),
+                     factory = { context ->
+-                        // Use application context wrapped with proper theme for Presentation contexts
+-                        val themedContext = ContextThemeWrapper(
+-                            context.applicationContext,
+-                            R.style.Theme_Tachiyomi,
+-                        )
+-                        screenModel.controllerBinding = DownloadListBinding.inflate(LayoutInflater.from(themedContext))
++                        screenModel.controllerBinding = DownloadListBinding.inflate(LayoutInflater.from(context))
+                         screenModel.adapter = DownloadAdapter(screenModel.listener)
+                         screenModel.controllerBinding.root.adapter = screenModel.adapter
+                         screenModel.adapter?.isHandleDragEnabled = true
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/download/DownloadQueueScreenModel.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/download/DownloadQueueScreenModel.kt
+index 3f88966..031b8e6 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/ui/download/DownloadQueueScreenModel.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/ui/download/DownloadQueueScreenModel.kt
+@@ -3,11 +3,13 @@ package eu.kanade.tachiyomi.ui.download
+ import android.view.MenuItem
+ import cafe.adriel.voyager.core.model.ScreenModel
+ import cafe.adriel.voyager.core.model.screenModelScope
++import cafe.adriel.voyager.navigator.Navigator
+ import eu.kanade.tachiyomi.R
+ import eu.kanade.tachiyomi.data.download.DownloadManager
+ import eu.kanade.tachiyomi.data.download.model.Download
+ import eu.kanade.tachiyomi.databinding.DownloadListBinding
+ import eu.kanade.tachiyomi.source.model.Page
++import eu.kanade.tachiyomi.ui.manga.MangaScreen
+ import kotlinx.coroutines.Job
+ import kotlinx.coroutines.delay
+ import kotlinx.coroutines.flow.MutableStateFlow
+@@ -26,6 +28,7 @@ import uy.kohesive.injekt.api.get
+ 
+ class DownloadQueueScreenModel(
+     private val downloadManager: DownloadManager = Injekt.get(),
++    private val navigator: Navigator? = null,
+ ) : ScreenModel {
+ 
+     private val _state = MutableStateFlow(emptyList<DownloadHeaderItem>())
+@@ -110,6 +113,9 @@ class DownloadQueueScreenModel(
+                             cancel(allDownloadsForSeries)
+                         }
+                     }
++                    R.id.show_manga -> {
++                        showManga(mangaId = item.download.manga.id)
++                    }
+                 }
+             }
+         }
+@@ -266,4 +272,8 @@ class DownloadQueueScreenModel(
+     private fun getHolder(download: Download): DownloadHolder? {
+         return controllerBinding.root.findViewHolderForItemId(download.chapter.id) as? DownloadHolder
+     }
++
++    fun showManga(mangaId: Long) {
++        navigator?.push(MangaScreen(mangaId))
++    }
+ }
+diff --git a/app/src/main/res/menu/download_single.xml b/app/src/main/res/menu/download_single.xml
+index 1cf14ff..98c0614 100644
+--- a/app/src/main/res/menu/download_single.xml
++++ b/app/src/main/res/menu/download_single.xml
+@@ -25,4 +25,8 @@
+         android:id="@+id/cancel_series"
+         android:title="@string/cancel_all_for_series" />
+ 
++    <item
++        android:id="@+id/show_manga"
++        android:title="@string/action_show_manga" />
++
+ </menu>

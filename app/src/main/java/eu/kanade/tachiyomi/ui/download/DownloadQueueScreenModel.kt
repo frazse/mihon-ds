@@ -3,11 +3,13 @@ package eu.kanade.tachiyomi.ui.download
 import android.view.MenuItem
 import cafe.adriel.voyager.core.model.ScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
+import cafe.adriel.voyager.navigator.Navigator
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.tachiyomi.databinding.DownloadListBinding
 import eu.kanade.tachiyomi.source.model.Page
+import eu.kanade.tachiyomi.ui.manga.MangaScreen
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +28,7 @@ import uy.kohesive.injekt.api.get
 
 class DownloadQueueScreenModel(
     private val downloadManager: DownloadManager = Injekt.get(),
+    private val navigator: Navigator? = null,
 ) : ScreenModel {
 
     private val _state = MutableStateFlow(emptyList<DownloadHeaderItem>())
@@ -109,6 +112,9 @@ class DownloadQueueScreenModel(
                         if (!allDownloadsForSeries.isNullOrEmpty()) {
                             cancel(allDownloadsForSeries)
                         }
+                    }
+                    R.id.show_manga -> {
+                        showManga(mangaId = item.download.manga.id)
                     }
                 }
             }
@@ -265,5 +271,9 @@ class DownloadQueueScreenModel(
      */
     private fun getHolder(download: Download): DownloadHolder? {
         return controllerBinding.root.findViewHolderForItemId(download.chapter.id) as? DownloadHolder
+    }
+
+    fun showManga(mangaId: Long) {
+        navigator?.push(MangaScreen(mangaId))
     }
 }

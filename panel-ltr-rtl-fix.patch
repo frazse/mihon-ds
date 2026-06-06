@@ -1,0 +1,15 @@
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
+index e7670b3..6353251 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
+@@ -163,7 +163,9 @@ class ReaderActivity : BaseActivity() {
+             isEnabled = { isPanelReadingActive() },
+             readingDirection = {
+                 val mode = ReadingMode.fromPreference(viewModel.getMangaReadingMode(resolveDefault = true))
+-                if (mode == ReadingMode.RIGHT_TO_LEFT) {
++                if (mode == ReadingMode.LEFT_TO_RIGHT) {
++                    PanelReadingDirection.RIGHT_TO_LEFT
++                } else if (mode == ReadingMode.RIGHT_TO_LEFT) {
+                     PanelReadingDirection.RIGHT_TO_LEFT
+                 } else {
+                     PanelReadingDirection.LEFT_TO_RIGHT

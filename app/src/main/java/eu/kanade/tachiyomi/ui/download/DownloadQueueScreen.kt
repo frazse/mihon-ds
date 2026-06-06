@@ -1,8 +1,6 @@
 package eu.kanade.tachiyomi.ui.download
 
-import android.view.ContextThemeWrapper
 import android.view.LayoutInflater
-import eu.kanade.tachiyomi.R
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -74,7 +72,7 @@ object DownloadQueueScreen : Screen() {
             }
         }
         val scope = rememberCoroutineScope()
-        val screenModel = rememberScreenModel { DownloadQueueScreenModel() }
+        val screenModel = rememberScreenModel { DownloadQueueScreenModel(navigator = navigator) }
         val downloadList by screenModel.state.collectAsState()
         val downloadCount by remember {
             derivedStateOf { downloadList.sumOf { it.subItems.size } }
@@ -259,12 +257,7 @@ object DownloadQueueScreen : Screen() {
                 AndroidView(
                     modifier = Modifier.fillMaxWidth(),
                     factory = { context ->
-                        // Use application context wrapped with proper theme for Presentation contexts
-                        val themedContext = ContextThemeWrapper(
-                            context.applicationContext,
-                            R.style.Theme_Tachiyomi,
-                        )
-                        screenModel.controllerBinding = DownloadListBinding.inflate(LayoutInflater.from(themedContext))
+                        screenModel.controllerBinding = DownloadListBinding.inflate(LayoutInflater.from(context))
                         screenModel.adapter = DownloadAdapter(screenModel.listener)
                         screenModel.controllerBinding.root.adapter = screenModel.adapter
                         screenModel.adapter?.isHandleDragEnabled = true
