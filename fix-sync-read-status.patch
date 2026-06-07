@@ -1,0 +1,16 @@
+diff --git a/app/src/main/java/eu/kanade/tachiyomi/data/backup/restore/restorers/MangaRestorer.kt b/app/src/main/java/eu/kanade/tachiyomi/data/backup/restore/restorers/MangaRestorer.kt
+index 1de2a83..7daf67c 100644
+--- a/app/src/main/java/eu/kanade/tachiyomi/data/backup/restore/restorers/MangaRestorer.kt
++++ b/app/src/main/java/eu/kanade/tachiyomi/data/backup/restore/restorers/MangaRestorer.kt
+@@ -172,6 +172,11 @@ class MangaRestorer(
+                         read = true,
+                         lastPageRead = dbChapter.lastPageRead,
+                     )
++                } else if (updatedChapter.read && !dbChapter.read) {
++                    // Remote says read, local says unread — apply remote (SyncYomi push)
++                    updatedChapter = updatedChapter.copy(
++                        read = true,
++                    )
+                 } else if (updatedChapter.lastPageRead == 0L && dbChapter.lastPageRead != 0L) {
+                     updatedChapter = updatedChapter.copy(
+                         lastPageRead = dbChapter.lastPageRead,

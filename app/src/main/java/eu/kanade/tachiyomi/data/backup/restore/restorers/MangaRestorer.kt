@@ -172,6 +172,11 @@ class MangaRestorer(
                         read = true,
                         lastPageRead = dbChapter.lastPageRead,
                     )
+                } else if (updatedChapter.read && !dbChapter.read) {
+                    // Remote says read, local says unread — apply remote (SyncYomi push)
+                    updatedChapter = updatedChapter.copy(
+                        read = true,
+                    )
                 } else if (updatedChapter.lastPageRead == 0L && dbChapter.lastPageRead != 0L) {
                     updatedChapter = updatedChapter.copy(
                         lastPageRead = dbChapter.lastPageRead,
