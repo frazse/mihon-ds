@@ -50,6 +50,8 @@ class Kavita(id: Long) : BaseTracker(id, "Kavita"), EnhancedTracker {
 
     override fun getCompletionStatus(): Long = COMPLETED
 
+    override fun hasNotStartedReading(status: Long): Boolean = status == UNREAD
+
     override fun getScoreList(): ImmutableList<String> = persistentListOf()
 
     override fun displayScore(track: DomainTrack): String = ""
@@ -80,6 +82,10 @@ class Kavita(id: Long) : BaseTracker(id, "Kavita"), EnhancedTracker {
         track.copyPersonalFrom(remoteTrack)
         track.total_chapters = remoteTrack.total_chapters
         return track
+    }
+
+    override suspend fun fetchRemoteTrack(track: Track): Track? {
+        return fetchRemoteTrackOrNull { refresh(track) }
     }
 
     override suspend fun login(username: String, password: String) {

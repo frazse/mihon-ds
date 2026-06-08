@@ -61,6 +61,8 @@ class MyAnimeList(id: Long) : BaseTracker(id, "MyAnimeList"), DeletableTracker {
 
     override fun getCompletionStatus(): Long = COMPLETED
 
+    override fun hasNotStartedReading(status: Long): Boolean = status == PLAN_TO_READ
+
     override fun getScoreList(): ImmutableList<String> = SCORE_LIST
 
     override fun displayScore(track: DomainTrack): String {
@@ -130,7 +132,11 @@ class MyAnimeList(id: Long) : BaseTracker(id, "MyAnimeList"), DeletableTracker {
     }
 
     override suspend fun refresh(track: Track): Track {
-        return api.findListItem(track) ?: add(track)
+        return fetchRemoteTrack(track) ?: add(track)
+    }
+
+    override suspend fun fetchRemoteTrack(track: Track): Track? {
+        return api.findListItem(track)
     }
 
     override suspend fun login(username: String, password: String) = login(password)

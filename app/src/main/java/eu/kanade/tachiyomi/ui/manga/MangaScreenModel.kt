@@ -26,6 +26,7 @@ import eu.kanade.domain.manga.model.toSManga
 import eu.kanade.domain.track.interactor.AddTracks
 import eu.kanade.domain.track.interactor.RefreshTracks
 import eu.kanade.domain.track.interactor.TrackChapter
+import eu.kanade.domain.track.interactor.TrackProgressSyncMode
 import eu.kanade.domain.track.model.AutoTrackState
 import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.presentation.manga.DownloadAction
@@ -244,6 +245,7 @@ class MangaScreenModel(
                     async { if (needRefreshChapter) fetchChaptersFromSource() },
                 )
                 fetchFromSourceTasks.awaitAll()
+                syncTrackers()
             }
 
             // Initial loading finished
@@ -252,13 +254,14 @@ class MangaScreenModel(
     }
 
     fun fetchAllFromSource(manualFetch: Boolean = true) {
-        screenModelScope.launch {
+        screenModelScope.launchIO {
             updateSuccessState { it.copy(isRefreshingData = true) }
             val fetchFromSourceTasks = listOf(
                 async { fetchMangaFromSource(manualFetch) },
                 async { fetchChaptersFromSource(manualFetch) },
             )
             fetchFromSourceTasks.awaitAll()
+            syncTrackers()
             updateSuccessState { it.copy(isRefreshingData = false) }
         }
     }
@@ -788,8 +791,9 @@ class MangaScreenModel(
 
     private suspend fun refreshTrackers(
         refreshTracks: RefreshTracks = Injekt.get(),
+        progressSyncMode: TrackProgressSyncMode = TrackProgressSyncMode.EnhancedTrackersOnly,
     ) {
-        refreshTracks.await(mangaId)
+        refreshTracks.await(mangaId, progressSyncMode = progressSyncMode)
             .filter { it.first != null }
             .forEach { (track, e) ->
                 logcat(LogPriority.ERROR, e) {
@@ -805,6 +809,12 @@ class MangaScreenModel(
                     )
                 }
             }
+    }
+
+    private suspend fun syncTrackers() {
+        if (!trackPreferences.autoSyncProgressFromTrackers().get()) return
+
+        refreshTrackers(progressSyncMode = TrackProgressSyncMode.AllTrackersFromRemote)
     }
 
     /**

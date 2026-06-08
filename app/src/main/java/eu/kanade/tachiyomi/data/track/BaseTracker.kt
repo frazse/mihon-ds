@@ -6,6 +6,7 @@ import eu.kanade.domain.track.interactor.AddTracks
 import eu.kanade.domain.track.model.toDomainTrack
 import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.tachiyomi.data.database.models.Track
+import eu.kanade.tachiyomi.network.HttpException
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.flow.Flow
@@ -72,6 +73,14 @@ abstract class BaseTracker(
 
     override fun saveCredentials(username: String, password: String) {
         trackPreferences.setCredentials(this, username, password)
+    }
+
+    protected suspend fun fetchRemoteTrackOrNull(block: suspend () -> Track): Track? {
+        return try {
+            block()
+        } catch (e: HttpException) {
+            if (e.code == 404) null else throw e
+        }
     }
 
     override suspend fun register(item: Track, mangaId: Long) {

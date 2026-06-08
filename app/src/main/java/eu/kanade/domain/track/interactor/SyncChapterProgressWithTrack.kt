@@ -7,7 +7,8 @@ import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.interactor.GetChaptersByMangaId
 import tachiyomi.domain.chapter.interactor.UpdateChapter
-import tachiyomi.domain.chapter.model.toChapterUpdate
+import tachiyomi.domain.chapter.model.Chapter
+import tachiyomi.domain.chapter.model.ChapterUpdate
 import tachiyomi.domain.track.interactor.InsertTrack
 import tachiyomi.domain.track.model.Track
 import kotlin.math.max
@@ -27,25 +28,72 @@ class SyncChapterProgressWithTrack(
             return
         }
 
-        val sortedChapters = getChaptersByMangaId.await(mangaId)
-            .sortedBy { it.chapterNumber }
-            .filter { it.isRecognizedNumber }
-
-        val chapterUpdates = sortedChapters
-            .filter { chapter -> chapter.chapterNumber <= remoteTrack.lastChapterRead && !chapter.read }
-            .map { it.copy(read = true).toChapterUpdate() }
-
-        // only take into account continuous reading
-        val localLastRead = sortedChapters.takeWhile { it.read }.lastOrNull()?.chapterNumber ?: 0F
-        val lastRead = max(remoteTrack.lastChapterRead, localLastRead.toDouble())
-        val updatedTrack = remoteTrack.copy(lastChapterRead = lastRead)
-
         try {
-            tracker.update(updatedTrack.toDbTrack())
-            updateChapter.awaitAll(chapterUpdates)
-            insertTrack.await(updatedTrack)
+            val dbChapters = getRecognizedChapters(mangaId)
+            val localLastRead = getContinuousLocalLastRead(dbChapters)
+            val lastRead = max(remoteTrack.lastChapterRead, localLastRead)
+            val updatedTrack = remoteTrack.copy(lastChapterRead = lastRead)
+
+            if (lastRead > remoteTrack.lastChapterRead) {
+                tracker.update(updatedTrack.toDbTrack())
+                insertTrack.await(updatedTrack)
+            }
+
+            updateChaptersReadFromTrack(dbChapters, remoteTrack, tracker)
         } catch (e: Throwable) {
             logcat(LogPriority.WARN, e)
+        }
+    }
+
+    suspend fun syncFromTrack(
+        mangaId: Long,
+        remoteTrack: Track,
+        tracker: Tracker,
+    ) {
+        try {
+            updateChaptersReadFromTrack(getRecognizedChapters(mangaId), remoteTrack, tracker)
+        } catch (e: Throwable) {
+            logcat(LogPriority.WARN, e)
+        }
+    }
+
+    private suspend fun getRecognizedChapters(mangaId: Long): List<Chapter> {
+        return getChaptersByMangaId.await(mangaId)
+            .sortedByDescending { it.sourceOrder }
+            .filter { it.isRecognizedNumber }
+    }
+
+    private fun getContinuousLocalLastRead(dbChapters: List<Chapter>): Double {
+        return dbChapters
+            .sortedBy { it.chapterNumber }
+            .takeWhile { it.read }
+            .lastOrNull()
+            ?.chapterNumber ?: 0.0
+    }
+
+    private suspend fun updateChaptersReadFromTrack(
+        dbChapters: List<Chapter>,
+        remoteTrack: Track,
+        tracker: Tracker,
+    ) {
+        if (tracker.hasNotStartedReading(remoteTrack.status)) {
+            return
+        }
+
+        var lastCheckChapter: Double
+        var checkingChapter = 0.0
+        // Use source order to stop at volume resets or other non-continuous chapter numbering.
+        val chapterUpdates = dbChapters
+            .takeWhile { chapter ->
+                lastCheckChapter = checkingChapter
+                checkingChapter = chapter.chapterNumber
+                chapter.chapterNumber >= lastCheckChapter && chapter.chapterNumber <= remoteTrack.lastChapterRead
+            }
+            .filter { chapter -> !chapter.read }
+            .map { ChapterUpdate(id = it.id, read = true) }
+
+        if (chapterUpdates.isNotEmpty()) {
+            updateChapter.awaitAll(chapterUpdates)
         }
     }
 }
