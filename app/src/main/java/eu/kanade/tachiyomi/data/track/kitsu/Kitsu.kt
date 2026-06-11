@@ -56,6 +56,8 @@ class Kitsu(id: Long) : BaseTracker(id, "Kitsu"), DeletableTracker {
 
     override fun getCompletionStatus(): Long = COMPLETED
 
+    override fun hasNotStartedReading(status: Long): Boolean = status == PLAN_TO_READ
+
     override fun getScoreList(): ImmutableList<String> {
         val df = DecimalFormat("0.#")
         return (listOf("0") + IntRange(2, 20).map { df.format(it / 2f) }).toImmutableList()
@@ -122,6 +124,15 @@ class Kitsu(id: Long) : BaseTracker(id, "Kitsu"), DeletableTracker {
     override suspend fun refresh(track: Track): Track {
         val remoteTrack = api.getLibManga(track)
         track.copyPersonalFrom(remoteTrack)
+        track.total_chapters = remoteTrack.total_chapters
+        return track
+    }
+
+    override suspend fun fetchRemoteTrack(track: Track): Track? {
+        val remoteTrack = api.findLibManga(track, getUserId()) ?: return null
+        track.copyPersonalFrom(remoteTrack)
+        track.remote_id = remoteTrack.remote_id
+        track.library_id = remoteTrack.library_id
         track.total_chapters = remoteTrack.total_chapters
         return track
     }

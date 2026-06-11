@@ -138,6 +138,11 @@ object SettingsTrackingScreen : SearchableSettings {
                     .toPersistentMap(),
                 title = stringResource(MR.strings.pref_auto_update_manga_on_mark_read),
             ),
+            Preference.PreferenceItem.SwitchPreference(
+                preference = trackPreferences.autoSyncProgressFromTrackers(),
+                title = stringResource(MR.strings.pref_auto_sync_progress_from_trackers),
+                subtitle = stringResource(MR.strings.pref_auto_sync_progress_from_trackers_summary),
+            ),
             Preference.PreferenceGroup(
                 title = stringResource(MR.strings.services),
                 preferenceItems = persistentListOf(

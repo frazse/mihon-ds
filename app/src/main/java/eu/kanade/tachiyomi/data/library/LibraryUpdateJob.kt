@@ -21,6 +21,9 @@ import androidx.work.workDataOf
 import eu.kanade.domain.chapter.interactor.SyncChaptersWithSource
 import eu.kanade.domain.manga.interactor.UpdateManga
 import eu.kanade.domain.manga.model.toSManga
+import eu.kanade.domain.track.interactor.RefreshTracks
+import eu.kanade.domain.track.interactor.TrackProgressSyncMode
+import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.notification.Notifications
@@ -90,6 +93,8 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
     private val syncChaptersWithSource: SyncChaptersWithSource = Injekt.get()
     private val fetchInterval: FetchInterval = Injekt.get()
     private val filterChaptersForDownload: FilterChaptersForDownload = Injekt.get()
+    private val trackPreferences: TrackPreferences = Injekt.get()
+    private val refreshTracks: RefreshTracks = Injekt.get()
 
     private val notifier = LibraryUpdateNotifier(context)
 
@@ -240,6 +245,9 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
         val failedUpdates = CopyOnWriteArrayList<Pair<Manga, String?>>()
         val hasDownloads = AtomicBoolean(false)
         val fetchWindow = fetchInterval.getWindow(ZonedDateTime.now())
+        val shouldSyncProgressFromTrackers = tags.contains(WORK_NAME_MANUAL) &&
+            trackPreferences.autoSyncProgressFromTrackers().get()
+        val trackerSyncSemaphore = Semaphore(1)
 
         coroutineScope {
             mangaToUpdate.groupBy { it.manga.source }.values
@@ -263,6 +271,12 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
                                     try {
                                         val newChapters = updateManga(manga, fetchWindow)
                                             .sortedByDescending { it.sourceOrder }
+
+                                        if (shouldSyncProgressFromTrackers) {
+                                            trackerSyncSemaphore.withPermit {
+                                                syncProgressFromTrackers(manga)
+                                            }
+                                        }
 
                                         if (newChapters.isNotEmpty()) {
                                             val chaptersToDownload = filterChaptersForDownload.await(manga, newChapters)
@@ -344,6 +358,27 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
         val dbManga = getManga.await(manga.id)?.takeIf { it.favorite } ?: return emptyList()
 
         return syncChaptersWithSource.await(chapters, dbManga, source, false, fetchWindow)
+    }
+
+    private suspend fun syncProgressFromTrackers(manga: Manga) {
+        try {
+            refreshTracks.await(
+                manga.id,
+                progressSyncMode = TrackProgressSyncMode.AllTrackersFromRemote,
+            )
+                .forEach { (tracker, e) ->
+                    logcat(LogPriority.ERROR, e) {
+                        "Failed to sync tracker progress during library update " +
+                            "mangaId=${manga.id}, trackerId=${tracker?.id}"
+                    }
+                }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            logcat(LogPriority.ERROR, e) {
+                "Failed to sync tracker progress during library update mangaId=${manga.id}"
+            }
+        }
     }
 
     private suspend fun withUpdateNotification(
