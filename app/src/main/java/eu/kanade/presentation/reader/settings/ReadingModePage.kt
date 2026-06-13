@@ -12,6 +12,7 @@ import eu.kanade.domain.manga.model.readerOrientation
 import eu.kanade.domain.manga.model.readingMode
 import eu.kanade.tachiyomi.ui.reader.panel.PanelFocusEffect
 import eu.kanade.tachiyomi.ui.reader.panel.PanelReadingSettings
+import eu.kanade.tachiyomi.ui.reader.panel.PanelSortingAlgorithm
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsScreenModel
@@ -122,6 +123,17 @@ private fun ColumnScope.PagerViewerSettings(screenModel: ReaderSettingsScreenMod
     )
 
     if (panelReadingEnabled) {
+        val panelSortingAlgorithm by screenModel.preferences.panelSortingAlgorithm().collectAsState()
+        SettingsChipRow(MR.strings.pref_panel_sorting_algorithm) {
+            PanelSortingAlgorithm.entries.map { algorithm ->
+                FilterChip(
+                    selected = panelSortingAlgorithm == algorithm,
+                    onClick = { screenModel.preferences.panelSortingAlgorithm().set(algorithm) },
+                    label = { Text(stringResource(algorithm.titleRes)) },
+                )
+            }
+        }
+
         val panelTransitionMillis by screenModel.preferences.panelReadingTransitionMillis().collectAsState()
         SliderItem(
             label = stringResource(MR.strings.pref_panel_transition_duration),

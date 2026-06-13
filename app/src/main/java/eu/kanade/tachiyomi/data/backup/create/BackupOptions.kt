@@ -18,6 +18,7 @@ data class BackupOptions(
 
     // SY -->
     val customInfo: Boolean = true,
+    val mergedManga: Boolean = true,
     val savedSearches: Boolean = true,
     // SY <--
 ) {
@@ -36,6 +37,7 @@ data class BackupOptions(
 
         // SY -->
         customInfo,
+        mergedManga,
         savedSearches,
         // SY <--
     )
@@ -78,6 +80,12 @@ data class BackupOptions(
                 setter = { options, enabled -> options.copy(readEntries = enabled) },
                 enabled = { it.libraryEntries },
             ),
+            Entry(
+                label = MR.strings.merged_entries,
+                getter = BackupOptions::mergedManga,
+                setter = { options, enabled -> options.copy(mergedManga = enabled) },
+                enabled = { it.libraryEntries },
+            ),
         )
 
         val settingsOptions = persistentListOf(
@@ -118,7 +126,8 @@ data class BackupOptions(
 
             // SY -->
             customInfo = array.getOrElse(10) { true },
-            savedSearches = array.getOrElse(11) { true },
+            mergedManga = array.getOrElse(11) { true },
+            savedSearches = array.getOrElse(12) { true },
             // SY <--
         )
     }

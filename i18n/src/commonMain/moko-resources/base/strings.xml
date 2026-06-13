@@ -18,6 +18,7 @@
     <string name="track">Tracking</string>
     <string name="delete_downloaded">Delete downloaded</string>
     <string name="history">History</string>
+    <string name="merged_entries">Merged entries</string>
     <string name="scanlator">Scanlator</string>
 
     <!-- Screen titles -->
@@ -566,6 +567,9 @@
     <string name="pref_auto_update_manga_sync">Update progress after reading</string>
     <string name="pref_auto_update_manga_on_mark_read">Update progress when marked as read</string>
     <string name="pref_auto_sync_read_chapters">Auto sync read chapters from Trackers</string>
+    <string name="panel_sort_row_based">Row-based (default)</string>
+    <string name="panel_sort_xy_cut">XY-cut</string>
+    <string name="pref_panel_sorting_algorithm">Panel sorting algorithm</string>
 
     <!-- SyncYomi -->
     <string name="pref_sync_service_category">Sync</string>

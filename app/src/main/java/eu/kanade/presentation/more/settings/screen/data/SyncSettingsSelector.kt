@@ -119,6 +119,7 @@ private class SyncSettingsSelectorModel(
 
                 // SY -->
                 customInfo = syncSettings.customInfo,
+                mergedManga = syncSettings.mergedManga,
                 readEntries = syncSettings.readEntries,
                 savedSearches = syncSettings.savedSearches,
                 // SY <--
@@ -139,6 +140,7 @@ private class SyncSettingsSelectorModel(
 
                 // SY -->
                 customInfo = backupOptions.customInfo,
+                mergedManga = backupOptions.mergedManga,
                 readEntries = backupOptions.readEntries,
                 savedSearches = backupOptions.savedSearches,
                 // SY <--

@@ -37,6 +37,7 @@ import tachiyomi.domain.library.model.LibraryManga
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.i18n.MR
+import eu.kanade.tachiyomi.ui.main.ProcessBannerState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.math.RoundingMode
@@ -90,13 +91,25 @@ class LibraryUpdateNotifier(
      * @param total the total progress.
      */
     fun showProgressNotification(manga: List<Manga>, current: Int, total: Int) {
+        val title = context.stringResource(
+            MR.strings.notification_updating_progress,
+            percentFormatter.format(current.toFloat() / total),
+        )
+        val subtitle = if (!securityPreferences.hideNotificationContent().get()) {
+            manga.joinToString(", ") { it.title.chop(40) }
+        } else {
+            null
+        }
+
+        ProcessBannerState.show(
+            id = ProcessBannerState.LIBRARY_UPDATE_ID,
+            title = title,
+            subtitle = subtitle,
+            progress = current.toFloat() / total,
+        )
+
         progressNotificationBuilder
-            .setContentTitle(
-                context.stringResource(
-                    MR.strings.notification_updating_progress,
-                    percentFormatter.format(current.toFloat() / total),
-                ),
-            )
+            .setContentTitle(title)
 
         if (!securityPreferences.hideNotificationContent().get()) {
             val updatingText = manga.joinToString("\n") { it.title.chop(40) }
@@ -287,6 +300,7 @@ class LibraryUpdateNotifier(
      * Cancels the progress notification.
      */
     fun cancelProgressNotification() {
+        ProcessBannerState.hide(ProcessBannerState.LIBRARY_UPDATE_ID)
         context.cancelNotification(Notifications.ID_LIBRARY_PROGRESS)
     }
 

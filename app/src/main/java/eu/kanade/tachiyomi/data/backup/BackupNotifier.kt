@@ -16,6 +16,7 @@ import tachiyomi.core.common.i18n.pluralStringResource
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.storage.displayablePath
 import tachiyomi.i18n.MR
+import eu.kanade.tachiyomi.ui.main.ProcessBannerState
 import uy.kohesive.injekt.injectLazy
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -93,12 +94,20 @@ class BackupNotifier(private val context: Context) {
         maxAmount: Int = 100,
         sync: Boolean = false,
     ): NotificationCompat.Builder {
+        val contentTitle = if (sync) {
+            context.stringResource(MR.strings.syncing_library)
+        } else {
+            context.stringResource(MR.strings.restoring_backup)
+        }
+
+        ProcessBannerState.show(
+            id = ProcessBannerState.BACKUP_RESTORE_ID,
+            title = contentTitle,
+            subtitle = content.takeIf { !preferences.hideNotificationContent().get() },
+            progress = progress.toFloat() / maxAmount.coerceAtLeast(1),
+        )
+
         val builder = with(progressNotificationBuilder) {
-            val contentTitle = if (sync) {
-                context.stringResource(MR.strings.syncing_library)
-            } else {
-                context.stringResource(MR.strings.restoring_backup)
-            }
             setContentTitle(contentTitle)
 
             if (!preferences.hideNotificationContent().get()) {
@@ -122,6 +131,7 @@ class BackupNotifier(private val context: Context) {
     }
 
     fun showRestoreError(error: String?) {
+        ProcessBannerState.hide(ProcessBannerState.BACKUP_RESTORE_ID)
         context.cancelNotification(Notifications.ID_RESTORE_PROGRESS)
 
         with(completeNotificationBuilder) {
@@ -145,6 +155,7 @@ class BackupNotifier(private val context: Context) {
             context.stringResource(MR.strings.restore_completed)
         }
 
+        ProcessBannerState.hide(ProcessBannerState.BACKUP_RESTORE_ID)
         context.cancelNotification(Notifications.ID_RESTORE_PROGRESS)
 
         val timeString = context.stringResource(

@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.util.system.notificationBuilder
 import eu.kanade.tachiyomi.util.system.notify
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.i18n.MR
+import eu.kanade.tachiyomi.ui.main.ProcessBannerState
 import uy.kohesive.injekt.injectLazy
 
 class SyncNotifier(private val context: Context) {
@@ -41,8 +42,16 @@ class SyncNotifier(private val context: Context) {
     }
 
     fun showSyncProgress(content: String = "", progress: Int = 0, maxAmount: Int = 100): NotificationCompat.Builder {
+        val title = context.stringResource(MR.strings.syncing_library)
+        ProcessBannerState.show(
+            id = ProcessBannerState.SYNC_ID,
+            title = title,
+            subtitle = content.takeIf { !preferences.hideNotificationContent().get() },
+            progress = progress.toFloat() / maxAmount.coerceAtLeast(1),
+        )
+
         val builder = with(progressNotificationBuilder) {
-            setContentTitle(context.stringResource(MR.strings.syncing_library))
+            setContentTitle(title)
 
             if (!preferences.hideNotificationContent().get()) {
                 setContentText(content)
@@ -65,6 +74,7 @@ class SyncNotifier(private val context: Context) {
     }
 
     fun showSyncError(error: String?) {
+        ProcessBannerState.hide(ProcessBannerState.SYNC_ID)
         context.cancelNotification(Notifications.ID_RESTORE_PROGRESS)
 
         with(completeNotificationBuilder) {
@@ -76,6 +86,7 @@ class SyncNotifier(private val context: Context) {
     }
 
     fun showSyncSuccess(message: String?) {
+        ProcessBannerState.hide(ProcessBannerState.SYNC_ID)
         context.cancelNotification(Notifications.ID_RESTORE_PROGRESS)
 
         with(completeNotificationBuilder) {

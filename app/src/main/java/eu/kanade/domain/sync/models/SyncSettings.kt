@@ -14,6 +14,7 @@ data class SyncSettings(
     // SY -->
     val customInfo: Boolean = true,
     val readEntries: Boolean = true,
+    val mergedManga: Boolean = true,
     val savedSearches: Boolean = true,
     // SY <--
 )

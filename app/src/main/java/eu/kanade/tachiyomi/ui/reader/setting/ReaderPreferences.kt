@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.BlendMode
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.tachiyomi.ui.reader.panel.PanelFocusEffect
 import eu.kanade.tachiyomi.ui.reader.panel.PanelReadingSettings
+import eu.kanade.tachiyomi.ui.reader.panel.PanelSortingAlgorithm
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getEnum
 import tachiyomi.i18n.MR
@@ -62,6 +63,11 @@ class ReaderPreferences(
     fun navigateToPan() = preferenceStore.getBoolean("navigate_pan", true)
 
     fun panelReadingPaged() = preferenceStore.getBoolean("pref_panel_reading_paged", false)
+
+    fun panelSortingAlgorithm() = preferenceStore.getEnum(
+        "pref_panel_sorting_algorithm",
+        PanelSortingAlgorithm.ROW_BASED,
+    )
 
     fun panelReadingTransitionMillis() = preferenceStore.getInt(
         "pref_panel_reading_transition_millis",

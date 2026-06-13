@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.reader.panel
 
+import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -12,6 +13,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
 class PanelReadingController(
     private val scope: CoroutineScope,
@@ -19,6 +22,7 @@ class PanelReadingController(
     private val isEnabled: () -> Boolean,
     private val readingDirection: () -> PanelReadingDirection,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val readerPreferences: ReaderPreferences = Injekt.get(),
 ) {
 
     private val cachedRawPanels = LinkedHashMap<PanelPageKey, List<ReaderPanel>>()
@@ -277,7 +281,7 @@ class PanelReadingController(
         rawPanels: List<ReaderPanel>,
         preferredPanelIndex: Int,
     ) {
-        val panels = PanelSorter.sort(rawPanels, readingDirection())
+        val panels = PanelSorter.sort(rawPanels, readingDirection(), readerPreferences.panelSortingAlgorithm().get())
         val panelIndex = when {
             panels.isEmpty() -> -1
             preferredPanelIndex < 0 -> 0
