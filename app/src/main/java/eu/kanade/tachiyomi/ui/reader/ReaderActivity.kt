@@ -1169,7 +1169,9 @@ class ReaderActivity : BaseActivity(), ReaderActionTarget {
     }
 
     fun handleExternalScroll(dy: Float) {
-        viewModel.state.value.viewer?.handleExternalScroll(dy)
+        val sensitivity = readerPreferences.secondaryDisplayScrollSensitivity().get()
+        val scaledDistance = ReaderExternalScrollSensitivity.scaleDistance(dy, sensitivity)
+        viewModel.state.value.viewer?.handleExternalScroll(scaledDistance)
     }
 
     fun handleExternalFling(vy: Float) {

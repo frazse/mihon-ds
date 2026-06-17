@@ -18,6 +18,7 @@ import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.text.NumberFormat
 
 object SettingsSpanningScreen : SearchableSettings {
 
@@ -36,7 +37,7 @@ object SettingsSpanningScreen : SearchableSettings {
         return mutableListOf<Preference>().apply {
             add(getReaderGroup(readerPref))
             add(getHingeGroup(readerPref))
-            add(getDualScreenModeGroup(basePref, context, dualScreenEnabled))
+            add(getDualScreenModeGroup(basePref, readerPref, context, dualScreenEnabled))
         }
     }
 
@@ -109,12 +110,13 @@ object SettingsSpanningScreen : SearchableSettings {
 
     @Composable
     private fun getDualScreenModeGroup(
-        basePref: BasePreferences, 
+        basePref: BasePreferences,
+        readerPref: ReaderPreferences,
         context: Context,
-        isEnabled: Boolean
+        isEnabled: Boolean,
     ): Preference.PreferenceGroup {
         val displayManager = remember { context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager }
-        val detectedDisplays = remember { 
+        val detectedDisplays = remember {
             displayManager.displays
                 .filter { it.displayId != Display.DEFAULT_DISPLAY }
                 .map { it.displayId }
@@ -126,9 +128,12 @@ object SettingsSpanningScreen : SearchableSettings {
         }
 
         val hasSecondaryDisplay = detectedDisplays.isNotEmpty()
+        val numberFormat = remember { NumberFormat.getPercentInstance() }
+        val secondaryDisplayScrollSensitivityPref = readerPref.secondaryDisplayScrollSensitivity()
+        val secondaryDisplayScrollSensitivity by secondaryDisplayScrollSensitivityPref.collectAsState()
 
         val items = mutableListOf<Preference.PreferenceItem<out Any, out Any>>()
-        
+
         items.add(
             Preference.PreferenceItem.SwitchPreference(
                 preference = basePref.enableDualScreenMode(),
@@ -149,6 +154,18 @@ object SettingsSpanningScreen : SearchableSettings {
                     preference = basePref.alwaysShowDashboard(),
                     title = stringResource(MR.strings.pref_always_show_dashboard),
                     subtitle = stringResource(MR.strings.pref_always_show_dashboard_summary),
+                )
+            )
+            items.add(
+                Preference.PreferenceItem.SliderPreference(
+                    value = secondaryDisplayScrollSensitivity,
+                    valueRange = ReaderPreferences.let {
+                        it.SECONDARY_DISPLAY_SCROLL_SENSITIVITY_MIN..it.SECONDARY_DISPLAY_SCROLL_SENSITIVITY_MAX
+                    },
+                    title = stringResource(MR.strings.pref_secondary_display_scroll_sensitivity),
+                    subtitle = stringResource(MR.strings.pref_secondary_display_scroll_sensitivity_summary),
+                    valueString = numberFormat.format(secondaryDisplayScrollSensitivity / 100f),
+                    onValueChanged = { secondaryDisplayScrollSensitivityPref.set(it) },
                 )
             )
             items.add(
