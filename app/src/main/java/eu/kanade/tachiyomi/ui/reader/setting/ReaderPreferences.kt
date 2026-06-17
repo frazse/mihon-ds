@@ -103,6 +103,11 @@ class ReaderPreferences(
         WEBTOON_HOLD_SCROLL_SPEED_DEFAULT,
     )
 
+    fun secondaryDisplayScrollSensitivity() = preferenceStore.getInt(
+        "secondary_display_scroll_sensitivity",
+        SECONDARY_DISPLAY_SCROLL_SENSITIVITY_DEFAULT,
+    )
+
     fun readerHideThreshold() = preferenceStore.getEnum("reader_hide_threshold", ReaderHideThreshold.LOW)
 
     fun folderPerManga() = preferenceStore.getBoolean("create_folder_per_manga", false)
@@ -236,6 +241,9 @@ class ReaderPreferences(
         const val WEBTOON_HOLD_SCROLL_SPEED_MIN = 25
         const val WEBTOON_HOLD_SCROLL_SPEED_DEFAULT = 100
         const val WEBTOON_HOLD_SCROLL_SPEED_MAX = 300
+        const val SECONDARY_DISPLAY_SCROLL_SENSITIVITY_MIN = 50
+        const val SECONDARY_DISPLAY_SCROLL_SENSITIVITY_DEFAULT = 100
+        const val SECONDARY_DISPLAY_SCROLL_SENSITIVITY_MAX = 500
 
         const val MILLI_CONVERSION = 100
 
