@@ -13,10 +13,11 @@ import androidx.viewpager.widget.ViewPager
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.ui.reader.ReaderActivity
+import eu.kanade.tachiyomi.ui.reader.input.ReaderAction
 import eu.kanade.tachiyomi.ui.reader.model.ChapterTransition
 import eu.kanade.tachiyomi.ui.reader.model.InsertPage
-import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.model.ReaderItemPair
+import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.model.ViewerChapters
 import eu.kanade.tachiyomi.ui.reader.panel.PanelMoveResult
 import eu.kanade.tachiyomi.ui.reader.panel.PanelPageKey
@@ -32,6 +33,27 @@ import kotlinx.coroutines.launch
 import tachiyomi.core.common.util.system.logcat
 import uy.kohesive.injekt.injectLazy
 import kotlin.math.min
+
+internal enum class PagerReaderActionRoute {
+    MOVE_RIGHT,
+    MOVE_LEFT,
+    MOVE_TO_NEXT,
+    MOVE_TO_PREVIOUS,
+    LOAD_NEXT_PAGE,
+    LOAD_PREVIOUS_PAGE,
+}
+
+internal fun pagerReaderActionRoute(action: ReaderAction): PagerReaderActionRoute? {
+    return when (action) {
+        ReaderAction.NEXT -> PagerReaderActionRoute.MOVE_RIGHT
+        ReaderAction.PREVIOUS -> PagerReaderActionRoute.MOVE_LEFT
+        ReaderAction.NEXT_PANEL -> PagerReaderActionRoute.MOVE_TO_NEXT
+        ReaderAction.PREVIOUS_PANEL -> PagerReaderActionRoute.MOVE_TO_PREVIOUS
+        ReaderAction.NEXT_PAGE -> PagerReaderActionRoute.LOAD_NEXT_PAGE
+        ReaderAction.PREVIOUS_PAGE -> PagerReaderActionRoute.LOAD_PREVIOUS_PAGE
+        else -> null
+    }
+}
 
 /**
  * Implementation of a [Viewer] to display pages with a [ViewPager].
@@ -165,7 +187,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
             val showOnStart = config.navigationOverlayOnStart || config.forceNavigationOverlay
             activity.binding.navigationOverlay.setNavigation(config.navigator, showOnStart)
         }
-        
+
         // Force re-measure of children when Pager size changes (Spanning)
         pager.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
             val widthChanged = (right - left) != (oldRight - oldLeft)
@@ -456,7 +478,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
         // Initial opening - preload allowed
         currentPage ?: return true
 
-        val currentChapter = (currentPage as? ReaderPage)?.chapter 
+        val currentChapter = (currentPage as? ReaderPage)?.chapter
             ?: (currentPage as? ReaderItemPair)?.first.let { (it as? ReaderPage)?.chapter }
 
         // Allow preload for
@@ -595,7 +617,10 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
                 onPageChange(position)
             }
         } else {
-            val pairPosition = adapter.items.indexOfFirst { it is ReaderItemPair && (it.first == page || it.second == page) }
+            val pairPosition = adapter.items.indexOfFirst {
+                it is ReaderItemPair &&
+                    (it.first == page || it.second == page)
+            }
             if (pairPosition != -1) {
                 val currentPosition = pager.currentItem
                 pager.setCurrentItem(pairPosition, true)
@@ -648,8 +673,11 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
             val secondHolder = (pair?.second as? ReaderPage)?.let(::getPageHolder)
 
             if (config.navigateToPan && (firstHolder?.canPanRight() == true || secondHolder?.canPanRight() == true)) {
-                if (firstHolder?.canPanRight() == true) firstHolder.panRight()
-                else secondHolder?.panRight()
+                if (firstHolder?.canPanRight() == true) {
+                    firstHolder.panRight()
+                } else {
+                    secondHolder?.panRight()
+                }
             } else {
                 val step = companionPageStep(1)
                 val target = (pager.currentItem + step).coerceAtMost(adapter.count - 1)
@@ -676,8 +704,11 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
             val secondHolder = (pair?.second as? ReaderPage)?.let(::getPageHolder)
 
             if (config.navigateToPan && (firstHolder?.canPanLeft() == true || secondHolder?.canPanLeft() == true)) {
-                if (secondHolder?.canPanLeft() == true) secondHolder.panLeft()
-                else firstHolder?.panLeft()
+                if (secondHolder?.canPanLeft() == true) {
+                    secondHolder.panLeft()
+                } else {
+                    firstHolder?.panLeft()
+                }
             } else {
                 val step = companionPageStep(-1)
                 val target = (pager.currentItem - step).coerceAtLeast(0)
@@ -791,9 +822,9 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
                     val newIndex = adapter.items.indexOfFirst { item ->
                         val unwrapped = (item as? ReaderItemPair)?.first ?: item
                         unwrapped is ChapterTransition &&
-                        // Compare type (Prev/Next) and To/From chapter IDs to ensure identity
-                        unwrapped::class == currentItem::class &&
-                        unwrapped.to?.chapter?.id == currentItem.to?.chapter?.id
+                            // Compare type (Prev/Next) and To/From chapter IDs to ensure identity
+                            unwrapped::class == currentItem::class &&
+                            unwrapped.to?.chapter?.id == currentItem.to?.chapter?.id
                     }
 
                     if (newIndex != -1) {
@@ -846,6 +877,24 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
             else -> return false
         }
         return true
+    }
+
+    override fun handleReaderAction(action: ReaderAction): Boolean {
+        return when (pagerReaderActionRoute(action)) {
+            PagerReaderActionRoute.MOVE_RIGHT -> moveRight()
+            PagerReaderActionRoute.MOVE_LEFT -> moveLeft()
+            PagerReaderActionRoute.MOVE_TO_NEXT -> moveToNext()
+            PagerReaderActionRoute.MOVE_TO_PREVIOUS -> moveToPrevious()
+            PagerReaderActionRoute.LOAD_NEXT_PAGE -> {
+                activity.loadNextPage()
+                true
+            }
+            PagerReaderActionRoute.LOAD_PREVIOUS_PAGE -> {
+                activity.loadPreviousPage()
+                true
+            }
+            null -> false
+        }
     }
 
     /**

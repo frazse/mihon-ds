@@ -3,14 +3,19 @@ package eu.kanade.tachiyomi.ui.reader.setting
 import android.os.Build
 import androidx.compose.ui.graphics.BlendMode
 import dev.icerock.moko.resources.StringResource
+import eu.kanade.tachiyomi.ui.reader.input.ReaderInputProfile
+import eu.kanade.tachiyomi.ui.reader.input.ReaderInputProfileJson
 import eu.kanade.tachiyomi.ui.reader.panel.PanelFocusEffect
 import eu.kanade.tachiyomi.ui.reader.panel.PanelReadingSettings
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getEnum
 import tachiyomi.i18n.MR
 
 class ReaderPreferences(
     private val preferenceStore: PreferenceStore,
+    private val json: Json,
 ) {
 
     // region General
@@ -85,6 +90,18 @@ class ReaderPreferences(
     fun cropBordersWebtoon() = preferenceStore.getBoolean("crop_borders_webtoon", false)
 
     fun webtoonSidePadding() = preferenceStore.getInt("webtoon_side_padding", WEBTOON_PADDING_MIN)
+
+    fun webtoonHoldScrollSpeedsLinked() = preferenceStore.getBoolean("webtoon_hold_scroll_speeds_linked", true)
+
+    fun webtoonHoldScrollForwardSpeed() = preferenceStore.getInt(
+        "webtoon_hold_scroll_forward_speed",
+        WEBTOON_HOLD_SCROLL_SPEED_DEFAULT,
+    )
+
+    fun webtoonHoldScrollBackwardSpeed() = preferenceStore.getInt(
+        "webtoon_hold_scroll_backward_speed",
+        WEBTOON_HOLD_SCROLL_SPEED_DEFAULT,
+    )
 
     fun readerHideThreshold() = preferenceStore.getEnum("reader_hide_threshold", ReaderHideThreshold.LOW)
 
@@ -168,6 +185,13 @@ class ReaderPreferences(
 
     fun readWithVolumeKeysInverted() = preferenceStore.getBoolean("reader_volume_keys_inverted", false)
 
+    fun readerInputProfile() = preferenceStore.getObjectFromString(
+        key = "reader_input_profile_v1",
+        defaultValue = ReaderInputProfile(),
+        serializer = { json.encodeToString(it) },
+        deserializer = { ReaderInputProfileJson.decodeOrDefault(json, it) },
+    )
+
     fun navigationModePager() = preferenceStore.getInt("reader_navigation_mode_pager", 0)
 
     fun navigationModeWebtoon() = preferenceStore.getInt("reader_navigation_mode_webtoon", 0)
@@ -209,6 +233,9 @@ class ReaderPreferences(
     companion object {
         const val WEBTOON_PADDING_MIN = 0
         const val WEBTOON_PADDING_MAX = 25
+        const val WEBTOON_HOLD_SCROLL_SPEED_MIN = 25
+        const val WEBTOON_HOLD_SCROLL_SPEED_DEFAULT = 100
+        const val WEBTOON_HOLD_SCROLL_SPEED_MAX = 300
 
         const val MILLI_CONVERSION = 100
 

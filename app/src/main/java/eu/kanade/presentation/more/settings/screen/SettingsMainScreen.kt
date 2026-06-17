@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.SportsEsports
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.LocalContentColor
@@ -191,6 +192,12 @@ object SettingsMainScreen : Screen() {
             subtitleRes = MR.strings.pref_reader_summary,
             icon = Icons.AutoMirrored.Outlined.ChromeReaderMode,
             screen = SettingsReaderScreen,
+        ),
+        Item(
+            titleRes = MR.strings.reader_controls,
+            subtitleRes = MR.strings.reader_controls_summary,
+            icon = Icons.Outlined.SportsEsports,
+            screen = SettingsReaderControlsScreen,
         ),
         Item(
             titleRes = MR.strings.pref_category_downloads,

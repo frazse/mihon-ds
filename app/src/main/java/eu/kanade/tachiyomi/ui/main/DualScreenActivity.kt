@@ -6,6 +6,8 @@ import android.content.res.Configuration
 import android.hardware.display.DisplayManager
 import android.os.Bundle
 import android.view.Display
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.Surface
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
@@ -26,6 +28,7 @@ import cafe.adriel.voyager.navigator.Navigator
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.presentation.util.DefaultNavigatorScreenTransition
 import eu.kanade.tachiyomi.ui.base.activity.BaseActivity
+import eu.kanade.tachiyomi.ui.reader.input.ReaderInputCaptureRegistry
 import eu.kanade.tachiyomi.util.view.setComposeContent
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -182,6 +185,20 @@ class DualScreenActivity : BaseActivity() {
         if (intent.action == ACTION_FINISH) {
             finish()
         }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (ReaderInputCaptureRegistry.captureKeyEvent(event)) {
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (ReaderInputCaptureRegistry.captureMotionEvent(event)) {
+            return true
+        }
+        return super.dispatchGenericMotionEvent(event)
     }
 
     override fun onDestroy() {
