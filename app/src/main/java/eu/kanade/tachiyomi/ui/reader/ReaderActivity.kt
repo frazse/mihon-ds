@@ -76,6 +76,18 @@ import eu.kanade.tachiyomi.ui.main.MainActivity
 import eu.kanade.tachiyomi.ui.reader.ReaderViewModel.SetAsCoverResult.AddToLibraryFirst
 import eu.kanade.tachiyomi.ui.reader.ReaderViewModel.SetAsCoverResult.Error
 import eu.kanade.tachiyomi.ui.reader.ReaderViewModel.SetAsCoverResult.Success
+import eu.kanade.tachiyomi.ui.reader.input.InputBinding
+import eu.kanade.tachiyomi.ui.reader.input.ReaderAction
+import eu.kanade.tachiyomi.ui.reader.input.ReaderActionDispatcher
+import eu.kanade.tachiyomi.ui.reader.input.ReaderActionTarget
+import eu.kanade.tachiyomi.ui.reader.input.ReaderInputDefaultOptions
+import eu.kanade.tachiyomi.ui.reader.input.ReaderInputEventParser
+import eu.kanade.tachiyomi.ui.reader.input.ReaderInputHoldKeyDispatcher
+import eu.kanade.tachiyomi.ui.reader.input.ReaderInputLayer
+import eu.kanade.tachiyomi.ui.reader.input.ReaderInputMotionEventLatch
+import eu.kanade.tachiyomi.ui.reader.input.ReaderInputRuntimeDispatchPolicy
+import eu.kanade.tachiyomi.ui.reader.input.ReaderInputRuntimeResolver
+import eu.kanade.tachiyomi.ui.reader.input.ReaderInputTrigger
 import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.model.ViewerChapters
@@ -123,7 +135,7 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.ByteArrayOutputStream
 
-class ReaderActivity : BaseActivity() {
+class ReaderActivity : BaseActivity(), ReaderActionTarget {
 
     companion object {
         fun newIntent(context: Context, mangaId: Long?, chapterId: Long?): Intent {
@@ -177,14 +189,39 @@ class ReaderActivity : BaseActivity() {
     private var loadingIndicator: ReaderProgressIndicator? = null
     private var controlsPresentation: ReaderControlsPresentation? = null
     private var readerPresentation: ReaderPresentation? = null
+    private val readerInputMotionEventLatch = ReaderInputMotionEventLatch()
+    private val readerInputRuntimeResolver by lazy {
+        ReaderInputRuntimeResolver(
+            profileProvider = { readerPreferences.readerInputProfile().get() },
+            defaultOptionsProvider = {
+                ReaderInputDefaultOptions(
+                    volumeKeysEnabled = readerPreferences.readWithVolumeKeys().get(),
+                    volumeKeysInverted = readerPreferences.readWithVolumeKeysInverted().get(),
+                )
+            },
+            layerProvider = ::currentReaderInputLayer,
+        )
+    }
+    private val readerInputHoldKeyDispatcher by lazy {
+        ReaderInputHoldKeyDispatcher(
+            scope = lifecycleScope,
+            resolve = { binding, trigger ->
+                readerInputRuntimeResolver.resolve(binding, trigger)
+            },
+            dispatch = { action ->
+                ReaderActionDispatcher.dispatch(action, this)
+            },
+            stop = ::stopReaderInputAction,
+        )
+    }
 
     // Dual-screen state
     private var companionPageEnabled = false
     private var isDeviceFoldable = false
     private var foldableStartupSettled = false
-    
+
     // Hinge gap state (ephemeral, not persisted to disk on every rotation)
-    private val _activeHingeGap = kotlinx.coroutines.flow.MutableStateFlow(0)
+    private val activeHingeGap = kotlinx.coroutines.flow.MutableStateFlow(0)
 
     fun isCompanionPageEnabled(): Boolean = companionPageEnabled
 
@@ -200,6 +237,20 @@ class ReaderActivity : BaseActivity() {
             panelReadingEnabled = readerPreferences.panelReadingPaged().get(),
             readingModePreference = viewModel.getMangaReadingMode(resolveDefault = true),
         )
+    }
+
+    private fun currentReaderInputLayer(): ReaderInputLayer? {
+        if (isPanelReadingActive()) return ReaderInputLayer.GUIDED_READING
+        return when (ReadingMode.fromPreference(viewModel.getMangaReadingMode(resolveDefault = true))) {
+            ReadingMode.WEBTOON,
+            ReadingMode.CONTINUOUS_VERTICAL,
+            -> ReaderInputLayer.WEBTOON
+            ReadingMode.LEFT_TO_RIGHT,
+            ReadingMode.RIGHT_TO_LEFT,
+            ReadingMode.VERTICAL,
+            -> ReaderInputLayer.PAGED
+            ReadingMode.DEFAULT -> null
+        }
     }
 
     fun togglePanelReading(): Boolean {
@@ -218,7 +269,7 @@ class ReaderActivity : BaseActivity() {
         if (!isDeviceFoldable && readerPreferences.autoAdjustHingeGap().get()) {
             return 0
         }
-        return _activeHingeGap.value
+        return activeHingeGap.value
     }
 
     fun setCompanionPage(enabled: Boolean) {
@@ -245,7 +296,7 @@ class ReaderActivity : BaseActivity() {
 
         val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         val secondaryId = preferences.secondaryDisplayId().get()
-        
+
         var presentationDisplay = if (secondaryId != -1 && secondaryId != Display.DEFAULT_DISPLAY) {
             displayManager.getDisplay(secondaryId)
         } else {
@@ -356,10 +407,10 @@ class ReaderActivity : BaseActivity() {
             }
             .launchIn(lifecycleScope)
 
-        _activeHingeGap.value = readerPreferences.manualHingeGap().get()
+        activeHingeGap.value = readerPreferences.manualHingeGap().get()
 
         readerPreferences.manualHingeGap().changes()
-            .onEach { _activeHingeGap.value = it }
+            .onEach { activeHingeGap.value = it }
             .launchIn(lifecycleScope)
 
         // Foldable state observation
@@ -386,8 +437,8 @@ class ReaderActivity : BaseActivity() {
                 // Hinge gap management
                 if (!isSpanned) {
                     if (isDeviceFoldable && readerPreferences.autoAdjustHingeGap().get()) {
-                        if (_activeHingeGap.value != 0) {
-                            _activeHingeGap.value = 0
+                        if (activeHingeGap.value != 0) {
+                            activeHingeGap.value = 0
                             (viewModel.state.value.viewer as? eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerViewer)?.refreshAdapter()
                         }
                     }
@@ -395,8 +446,8 @@ class ReaderActivity : BaseActivity() {
                     val hingeBounds = FoldableUtils.getHingeBounds(info)
                     if (hingeBounds != null) {
                         val gap = if (hingeBounds.width() > hingeBounds.height()) hingeBounds.height() else hingeBounds.width()
-                        if (gap > 0 && _activeHingeGap.value != gap) {
-                            _activeHingeGap.value = gap
+                        if (gap > 0 && activeHingeGap.value != gap) {
+                            activeHingeGap.value = gap
                             (viewModel.state.value.viewer as? eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerViewer)?.refreshAdapter()
                         }
                     }
@@ -492,7 +543,7 @@ class ReaderActivity : BaseActivity() {
             panelReadingEnabled = panelReadingPreferenceEnabled,
             readingModePreference = viewModel.getMangaReadingMode(resolveDefault = true),
         )
-        
+
         val settingsScreenModel = remember {
             ReaderSettingsScreenModel(
                 readerState = viewModel.state,
@@ -506,7 +557,7 @@ class ReaderActivity : BaseActivity() {
                 if (sideBySideMode) {
                     val readingMode = ReadingMode.fromPreference(viewModel.getMangaReadingMode())
                     val isRtl = readingMode == ReadingMode.RIGHT_TO_LEFT
-                    
+
                     Row(
                         modifier = Modifier
                             .fillMaxSize()
@@ -660,6 +711,7 @@ class ReaderActivity : BaseActivity() {
         controlsPresentation = null
         readerPresentation?.dismiss()
         readerPresentation = null
+        readerInputHoldKeyDispatcher.cancel()
         super.onDestroy()
         viewModel.state.value.viewer?.destroy()
         config = null
@@ -668,6 +720,7 @@ class ReaderActivity : BaseActivity() {
     }
 
     override fun onPause() {
+        readerInputHoldKeyDispatcher.cancel()
         lifecycleScope.launchNonCancellable {
             viewModel.updateHistory()
         }
@@ -686,7 +739,7 @@ class ReaderActivity : BaseActivity() {
             (reader != null && !reader.isShowing)) {
             recreatePresentation()
         }
-        
+
         viewModel.restartReadTimer()
         setMenuVisibility(viewModel.state.value.menuVisible)
     }
@@ -705,6 +758,7 @@ class ReaderActivity : BaseActivity() {
         if (hasFocus) {
             setMenuVisibility(viewModel.state.value.menuVisible)
         } else {
+            readerInputHoldKeyDispatcher.cancel()
             // Keep read timer alive when focus shifts to our own secondary display
             if (controlsPresentation?.isShowing == true || readerPresentation?.isShowing == true) {
                 viewModel.restartReadTimer()
@@ -723,10 +777,10 @@ class ReaderActivity : BaseActivity() {
      */
     override fun finish() {
         viewModel.onActivityFinish()
-        
+
         val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         val secondaryId = preferences.secondaryDisplayId().get()
-        
+
         var presentationDisplay = if (secondaryId != -1 && secondaryId != Display.DEFAULT_DISPLAY) {
             displayManager.getDisplay(secondaryId)
         } else {
@@ -777,6 +831,22 @@ class ReaderActivity : BaseActivity() {
      * Dispatches a key event. If the viewer doesn't handle it, call the default implementation.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (
+            ReaderInputRuntimeDispatchPolicy.shouldResolve(
+                ReaderInputEventParser.keyBinding(event.keyCode, event.metaState),
+                viewModel.state.value.menuVisible,
+            ) &&
+            readerInputHoldKeyDispatcher.handleKeyEvent(event)
+        ) {
+            return true
+        }
+
+        ReaderInputEventParser.bindingFromKeyEvent(event)?.let { binding ->
+            if (dispatchResolvedReaderInput(binding)) {
+                return true
+            }
+        }
+
         val handled = viewModel.state.value.viewer?.handleKeyEvent(event) ?: false
         return handled || super.dispatchKeyEvent(event)
     }
@@ -786,8 +856,27 @@ class ReaderActivity : BaseActivity() {
      * implementation.
      */
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        readerInputMotionEventLatch.bindingFromMotionEvent(event)?.let { binding ->
+            if (dispatchResolvedReaderInput(binding)) {
+                return true
+            }
+        }
+
         val handled = viewModel.state.value.viewer?.handleGenericMotionEvent(event) ?: false
         return handled || super.dispatchGenericMotionEvent(event)
+    }
+
+    private fun dispatchResolvedReaderInput(binding: InputBinding): Boolean {
+        if (!ReaderInputRuntimeDispatchPolicy.shouldResolve(binding, viewModel.state.value.menuVisible)) {
+            return false
+        }
+
+        val resolution = readerInputRuntimeResolver.resolveResult(binding, ReaderInputTrigger.PRESS)
+        val action = resolution.action
+        if (action != null && ReaderActionDispatcher.dispatch(action, this)) {
+            return true
+        }
+        return resolution.isOwnedBinding
     }
 
     @Composable
@@ -1147,6 +1236,44 @@ class ReaderActivity : BaseActivity() {
         } else {
             setMenuVisibility(!viewModel.state.value.menuVisible)
         }
+    }
+
+    override fun handleActivityAction(action: ReaderAction): Boolean {
+        return when (action) {
+            ReaderAction.NEXT_CHAPTER -> {
+                loadNextChapter()
+                true
+            }
+            ReaderAction.PREVIOUS_CHAPTER -> {
+                loadPreviousChapter()
+                true
+            }
+            ReaderAction.TOGGLE_MENU -> {
+                toggleMenu()
+                true
+            }
+            ReaderAction.TOGGLE_COMPANION_PAGE -> {
+                setCompanionPage(!isCompanionPageEnabled())
+                true
+            }
+            ReaderAction.TOGGLE_GUIDED_READING -> {
+                togglePanelReading()
+                true
+            }
+            ReaderAction.OPEN_READER_SETTINGS -> {
+                viewModel.openSettingsDialog()
+                true
+            }
+            else -> false
+        }
+    }
+
+    override fun handleViewerAction(action: ReaderAction): Boolean {
+        return viewModel.state.value.viewer?.handleReaderAction(action) ?: false
+    }
+
+    private fun stopReaderInputAction(action: ReaderAction) {
+        viewModel.state.value.viewer?.stopReaderAction(action)
     }
 
     /**
