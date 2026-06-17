@@ -28,7 +28,9 @@ class ReaderSettingsScreenModel(
     val displayIds = _displayIds.asStateFlow()
 
     init {
-        val displayManager = Injekt.get<android.app.Application>().getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        val displayManager = Injekt.get<android.app.Application>().getSystemService(
+            Context.DISPLAY_SERVICE,
+        ) as DisplayManager
         _displayIds.value = displayManager.displays
             .filter { it.displayId != Display.DEFAULT_DISPLAY }
             .map { it.displayId }
