@@ -19,6 +19,8 @@ A specialized fork of [Mihon](https://mihon.app) optimized for devices with seco
 *   **Side-by-Side Installation:** Uses a unique package name (`app.mihon.ds`) so it can be installed alongside the official Mihon app.
 *   **Webtoon Spanning:** Automatically synchronizes scrolling across both screens for a continuous webtoon reading experience.
 *   **Guided Reading:** Detects panels in paged manga and comics for panel-by-panel navigation with dual-screen context.
+*   **Reader Controls Mapper:** Map hardware buttons and controller inputs to reader actions, with global defaults and per-reading-mode overrides.
+*   **Secondary Display Scroll Sensitivity:** Adjustable bottom-screen touchpad scroll speed, from 50% to 500% (100% stays one-to-one with finger movement).
 *   **Tracker Progress Sync:** Optionally pulls tracker progress into local read status when refreshing entries or manually updating the library.
 *   **Customizable Setup:** New onboarding steps to select the target Display ID and rotation overrides.
 *   **Privacy Focused:** Telemetry and Crashlytics are disabled by default.
