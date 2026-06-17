@@ -51,7 +51,7 @@ class PreferenceModule(val app: Application) : InjektModule {
             UpdatesPreferences(get())
         }
         addSingletonFactory {
-            ReaderPreferences(get())
+            ReaderPreferences(get(), get())
         }
         addSingletonFactory {
             TrackPreferences(get())
