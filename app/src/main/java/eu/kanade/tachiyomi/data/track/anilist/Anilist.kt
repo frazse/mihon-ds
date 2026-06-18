@@ -77,6 +77,8 @@ class Anilist(id: Long) : BaseTracker(id, "AniList"), DeletableTracker {
 
     override fun getCompletionStatus(): Long = COMPLETED
 
+    override fun hasNotStartedReading(status: Long): Boolean = status == PLAN_TO_READ
+
     override fun getScoreList(): ImmutableList<String> {
         return when (scorePreference.get()) {
             // 10 point
@@ -205,6 +207,15 @@ class Anilist(id: Long) : BaseTracker(id, "AniList"), DeletableTracker {
     override suspend fun refresh(track: Track): Track {
         val remoteTrack = api.getLibManga(track, getUsername().toInt())
         track.copyPersonalFrom(remoteTrack)
+        track.title = remoteTrack.title
+        track.total_chapters = remoteTrack.total_chapters
+        return track
+    }
+
+    override suspend fun fetchRemoteTrack(track: Track): Track? {
+        val remoteTrack = api.findLibManga(track, getUsername().toInt()) ?: return null
+        track.copyPersonalFrom(remoteTrack)
+        track.library_id = remoteTrack.library_id
         track.title = remoteTrack.title
         track.total_chapters = remoteTrack.total_chapters
         return track

@@ -13,20 +13,50 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.WebtoonLayoutManager
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.ui.reader.ReaderActivity
+import eu.kanade.tachiyomi.ui.reader.input.ReaderAction
 import eu.kanade.tachiyomi.ui.reader.model.ChapterTransition
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.model.ViewerChapters
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
 import eu.kanade.tachiyomi.ui.reader.viewer.ViewerNavigation.NavigationRegion
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import tachiyomi.core.common.util.system.logcat
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
 import kotlin.math.max
 import kotlin.math.min
+
+internal enum class WebtoonReaderActionRoute {
+    SCROLL_DOWN,
+    SCROLL_UP,
+    FAST_SCROLL_DOWN,
+    FAST_SCROLL_UP,
+    HOLD_SCROLL_DOWN,
+    HOLD_SCROLL_UP,
+}
+
+internal fun webtoonReaderActionRoute(action: ReaderAction): WebtoonReaderActionRoute? {
+    return when (action) {
+        ReaderAction.NEXT,
+        ReaderAction.SCROLL_DOWN,
+        -> WebtoonReaderActionRoute.SCROLL_DOWN
+        ReaderAction.PREVIOUS,
+        ReaderAction.SCROLL_UP,
+        -> WebtoonReaderActionRoute.SCROLL_UP
+        ReaderAction.FAST_SCROLL_DOWN -> WebtoonReaderActionRoute.FAST_SCROLL_DOWN
+        ReaderAction.FAST_SCROLL_UP -> WebtoonReaderActionRoute.FAST_SCROLL_UP
+        ReaderAction.HOLD_SCROLL_DOWN -> WebtoonReaderActionRoute.HOLD_SCROLL_DOWN
+        ReaderAction.HOLD_SCROLL_UP -> WebtoonReaderActionRoute.HOLD_SCROLL_UP
+        else -> null
+    }
+}
 
 /**
  * Implementation of a [Viewer] to display pages with a [RecyclerView].
@@ -36,6 +66,7 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
     val downloadManager: DownloadManager by injectLazy()
 
     private val scope = MainScope()
+    private var holdScrollJob: Job? = null
 
     /**
      * Recycler view used by this viewer.
@@ -198,6 +229,7 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
      */
     override fun destroy() {
         super.destroy()
+        holdScrollJob?.cancel()
         scope.cancel()
     }
 
@@ -298,23 +330,27 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
     /**
      * Scrolls up by [scrollDistance].
      */
-    private fun scrollUp() {
+    private fun scrollUp(multiplier: Int = 1): Boolean {
+        val distance = -scrollDistance * multiplier
         if (config.usePageTransitions) {
-            recycler.smoothScrollBy(0, -scrollDistance)
+            recycler.smoothScrollBy(0, distance)
         } else {
-            recycler.scrollBy(0, -scrollDistance)
+            recycler.scrollBy(0, distance)
         }
+        return true
     }
 
     /**
      * Scrolls down by [scrollDistance].
      */
-    private fun scrollDown() {
+    private fun scrollDown(multiplier: Int = 1): Boolean {
+        val distance = scrollDistance * multiplier
         if (config.usePageTransitions) {
-            recycler.smoothScrollBy(0, scrollDistance)
+            recycler.smoothScrollBy(0, distance)
         } else {
-            recycler.scrollBy(0, scrollDistance)
+            recycler.scrollBy(0, distance)
         }
+        return true
     }
 
     /**
@@ -351,6 +387,54 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
             KeyEvent.KEYCODE_PAGE_DOWN,
             -> if (isUp) scrollDown()
             else -> return false
+        }
+        return true
+    }
+
+    override fun handleReaderAction(action: ReaderAction): Boolean {
+        return when (webtoonReaderActionRoute(action)) {
+            WebtoonReaderActionRoute.SCROLL_DOWN -> scrollDown()
+            WebtoonReaderActionRoute.SCROLL_UP -> scrollUp()
+            WebtoonReaderActionRoute.FAST_SCROLL_DOWN -> scrollDown(multiplier = 3)
+            WebtoonReaderActionRoute.FAST_SCROLL_UP -> scrollUp(multiplier = 3)
+            WebtoonReaderActionRoute.HOLD_SCROLL_DOWN -> startHoldScroll(direction = 1)
+            WebtoonReaderActionRoute.HOLD_SCROLL_UP -> startHoldScroll(direction = -1)
+            null -> false
+        }
+    }
+
+    override fun stopReaderAction(action: ReaderAction): Boolean {
+        return when (webtoonReaderActionRoute(action)) {
+            WebtoonReaderActionRoute.HOLD_SCROLL_DOWN,
+            WebtoonReaderActionRoute.HOLD_SCROLL_UP,
+            -> {
+                holdScrollJob?.cancel()
+                holdScrollJob = null
+                true
+            }
+            else -> false
+        }
+    }
+
+    private fun startHoldScroll(direction: Int): Boolean {
+        holdScrollJob?.cancel()
+        holdScrollJob = scope.launch {
+            var remainder = 0f
+            while (isActive) {
+                val speedPercent = if (direction > 0) {
+                    config.holdScrollForwardSpeed
+                } else {
+                    config.holdScrollBackwardSpeed
+                }
+                val distance = direction * scrollDistance * (speedPercent / 100f) *
+                    (HOLD_SCROLL_FRAME_MILLIS / 1_000f) + remainder
+                val roundedDistance = distance.toInt()
+                remainder = distance - roundedDistance
+                if (roundedDistance != 0) {
+                    recycler.scrollBy(0, roundedDistance)
+                }
+                delay(HOLD_SCROLL_FRAME_MILLIS)
+            }
         }
         return true
     }
@@ -399,3 +483,4 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
 
 // Double the cache size to reduce rebinds/recycles incurred by the extra layout space on scroll direction changes
 private const val RECYCLER_VIEW_CACHE_SIZE = 4
+private const val HOLD_SCROLL_FRAME_MILLIS = 16L

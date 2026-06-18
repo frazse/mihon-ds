@@ -78,6 +78,12 @@ class Bangumi(id: Long) : BaseTracker(id, "Bangumi") {
         return track
     }
 
+    override suspend fun fetchRemoteTrack(track: Track): Track? {
+        val remoteTrack = api.statusLibManga(track, getUsername()) ?: return null
+        track.copyPersonalFrom(remoteTrack)
+        return track
+    }
+
     override fun getLogo() = R.drawable.brand_bangumi
 
     override fun getStatusList(): List<Long> {
@@ -98,6 +104,8 @@ class Bangumi(id: Long) : BaseTracker(id, "Bangumi") {
     override fun getRereadingStatus(): Long = -1
 
     override fun getCompletionStatus(): Long = COMPLETED
+
+    override fun hasNotStartedReading(status: Long): Boolean = status == PLAN_TO_READ
 
     override suspend fun login(username: String, password: String) = login(password)
 

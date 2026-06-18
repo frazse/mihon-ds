@@ -36,6 +36,8 @@ interface Tracker {
 
     fun getCompletionStatus(): Long
 
+    fun hasNotStartedReading(status: Long): Boolean
+
     fun getScoreList(): ImmutableList<String>
 
     // TODO: Store all scores as 10 point in the future maybe?
@@ -52,6 +54,13 @@ interface Tracker {
     suspend fun search(query: String): List<TrackSearch>
 
     suspend fun refresh(track: Track): Track
+
+    /**
+     * Fetches the remote tracking state without creating or updating the remote entry.
+     *
+     * @return the remote tracking state, or null when the remote entry is missing.
+     */
+    suspend fun fetchRemoteTrack(track: Track): Track?
 
     suspend fun login(username: String, password: String)
 

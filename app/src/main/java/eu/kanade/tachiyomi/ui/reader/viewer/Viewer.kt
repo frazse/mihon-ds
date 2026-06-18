@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.ui.reader.viewer
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import eu.kanade.tachiyomi.ui.reader.input.ReaderAction
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.model.ViewerChapters
 
@@ -54,6 +55,16 @@ interface Viewer {
      * return true if the event was handled, false otherwise.
      */
     fun handleGenericMotionEvent(event: MotionEvent): Boolean
+
+    /**
+     * Called when a mapped reader action should be handled by the active viewer.
+     */
+    fun handleReaderAction(action: ReaderAction): Boolean = false
+
+    /**
+     * Called when a previously started mapped reader action should stop.
+     */
+    fun stopReaderAction(action: ReaderAction): Boolean = false
 
     /**
      * Called when an external scroll event is received (e.g. from a secondary screen touchpad).

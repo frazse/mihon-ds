@@ -96,6 +96,14 @@ class Shikimori(id: Long) : BaseTracker(id, "Shikimori"), DeletableTracker {
         return track
     }
 
+    override suspend fun fetchRemoteTrack(track: Track): Track? {
+        val remoteTrack = api.findLibManga(track, getUsername()) ?: return null
+        track.library_id = remoteTrack.library_id
+        track.copyPersonalFrom(remoteTrack)
+        track.total_chapters = remoteTrack.total_chapters
+        return track
+    }
+
     override fun getLogo() = R.drawable.brand_shikimori
 
     override fun getStatusList(): List<Long> {
@@ -117,6 +125,8 @@ class Shikimori(id: Long) : BaseTracker(id, "Shikimori"), DeletableTracker {
     override fun getRereadingStatus(): Long = REREADING
 
     override fun getCompletionStatus(): Long = COMPLETED
+
+    override fun hasNotStartedReading(status: Long): Boolean = status == PLAN_TO_READ
 
     override suspend fun login(username: String, password: String) = login(password)
 

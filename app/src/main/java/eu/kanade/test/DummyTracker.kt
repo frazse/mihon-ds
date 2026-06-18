@@ -52,6 +52,8 @@ data class DummyTracker(
 
     override fun getCompletionStatus(): Long = valCompletionStatus
 
+    override fun hasNotStartedReading(status: Long): Boolean = status == 2L
+
     override fun getScoreList(): ImmutableList<String> = valScoreList
 
     override fun get10PointScore(track: Track): Double = val10PointScore
@@ -76,6 +78,10 @@ data class DummyTracker(
     override suspend fun refresh(
         track: eu.kanade.tachiyomi.data.database.models.Track,
     ): eu.kanade.tachiyomi.data.database.models.Track = track
+
+    override suspend fun fetchRemoteTrack(
+        track: eu.kanade.tachiyomi.data.database.models.Track,
+    ): eu.kanade.tachiyomi.data.database.models.Track? = track
 
     override suspend fun login(username: String, password: String) = Unit
 

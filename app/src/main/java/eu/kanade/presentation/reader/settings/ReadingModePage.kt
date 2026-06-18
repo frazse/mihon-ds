@@ -54,12 +54,34 @@ internal fun ColumnScope.ReadingModePage(screenModel: ReaderSettingsScreenModel)
         }
     }
 
+    HeadingItem(MR.strings.pref_category_secondary_display)
+    SecondaryDisplayScrollSensitivityItem(screenModel)
+
     val viewer by screenModel.viewerFlow.collectAsState()
     if (viewer is WebtoonViewer) {
         WebtoonViewerSettings(screenModel)
     } else {
         PagerViewerSettings(screenModel)
     }
+}
+
+@Composable
+private fun ColumnScope.SecondaryDisplayScrollSensitivityItem(screenModel: ReaderSettingsScreenModel) {
+    val numberFormat = remember { NumberFormat.getPercentInstance() }
+    val secondaryDisplayScrollSensitivity by screenModel.preferences.secondaryDisplayScrollSensitivity().collectAsState()
+
+    SliderItem(
+        value = secondaryDisplayScrollSensitivity,
+        valueRange = ReaderPreferences.let {
+            it.SECONDARY_DISPLAY_SCROLL_SENSITIVITY_MIN..it.SECONDARY_DISPLAY_SCROLL_SENSITIVITY_MAX
+        },
+        label = stringResource(MR.strings.pref_secondary_display_scroll_sensitivity),
+        valueString = numberFormat.format(secondaryDisplayScrollSensitivity / 100f),
+        onChange = {
+            screenModel.preferences.secondaryDisplayScrollSensitivity().set(it)
+        },
+        pillColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+    )
 }
 
 @Composable

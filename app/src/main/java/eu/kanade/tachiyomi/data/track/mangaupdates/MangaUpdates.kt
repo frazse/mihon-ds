@@ -62,6 +62,8 @@ class MangaUpdates(id: Long) : BaseTracker(id, "MangaUpdates"), DeletableTracker
 
     override fun getCompletionStatus(): Long = COMPLETE_LIST
 
+    override fun hasNotStartedReading(status: Long): Boolean = status == WISH_LIST
+
     override fun getScoreList(): ImmutableList<String> = SCORE_LIST
 
     override fun indexToScore(index: Int): Double = if (index == 0) 0.0 else SCORE_LIST[index].toDouble()
@@ -101,6 +103,10 @@ class MangaUpdates(id: Long) : BaseTracker(id, "MangaUpdates"), DeletableTracker
     override suspend fun refresh(track: Track): Track {
         val (series, rating) = api.getSeriesListItem(track)
         return track.copyFrom(series, rating)
+    }
+
+    override suspend fun fetchRemoteTrack(track: Track): Track? {
+        return fetchRemoteTrackOrNull { refresh(track) }
     }
 
     private fun Track.copyFrom(item: MUListItem, rating: MURating?): Track = apply {

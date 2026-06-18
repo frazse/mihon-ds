@@ -37,6 +37,12 @@ class WebtoonConfig(
     var sidePadding = 0
         private set
 
+    var holdScrollForwardSpeed = ReaderPreferences.WEBTOON_HOLD_SCROLL_SPEED_DEFAULT
+        private set
+
+    var holdScrollBackwardSpeed = ReaderPreferences.WEBTOON_HOLD_SCROLL_SPEED_DEFAULT
+        private set
+
     var doubleTapZoom = true
         private set
 
@@ -50,6 +56,12 @@ class WebtoonConfig(
 
         readerPreferences.webtoonSidePadding()
             .register({ sidePadding = it }, { imagePropertyChangedListener?.invoke() })
+
+        readerPreferences.webtoonHoldScrollForwardSpeed()
+            .register({ holdScrollForwardSpeed = it })
+
+        readerPreferences.webtoonHoldScrollBackwardSpeed()
+            .register({ holdScrollBackwardSpeed = it })
 
         readerPreferences.navigationModeWebtoon()
             .register({ navigationMode = it }, { updateNavigation(it) })
