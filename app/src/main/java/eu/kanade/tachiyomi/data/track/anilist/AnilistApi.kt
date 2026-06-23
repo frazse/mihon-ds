@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.data.database.models.Track
 import eu.kanade.tachiyomi.data.track.anilist.dto.ALAddMangaResult
 import eu.kanade.tachiyomi.data.track.anilist.dto.ALCurrentUserResult
 import eu.kanade.tachiyomi.data.track.anilist.dto.ALOAuth
+import eu.kanade.tachiyomi.data.track.anilist.dto.ALRecommendationsResult
 import eu.kanade.tachiyomi.data.track.anilist.dto.ALSearchResult
 import eu.kanade.tachiyomi.data.track.anilist.dto.ALUserListMangaQueryResult
 import eu.kanade.tachiyomi.data.track.model.TrackSearch
@@ -278,6 +279,72 @@ class AnilistApi(val client: OkHttpClient, interceptor: AnilistInterceptor) {
 
     suspend fun getLibManga(track: Track, userId: Int): Track {
         return findLibManga(track, userId) ?: throw Exception("Could not find manga")
+    }
+
+    suspend fun getRecommendations(track: Track): List<TrackSearch> {
+        return withIOContext {
+            val query = $$"""
+            |query Recommendations($id: Int) {
+                |Media(id: $id, type: MANGA) {
+                    |recommendations {
+                        |nodes {
+                            |mediaRecommendation {
+                                |id
+                                |staff {
+                                    |edges {
+                                        |role
+                                        |id
+                                        |node {
+                                            |name {
+                                                |full
+                                                |userPreferred
+                                                |native
+                                            |}
+                                        |}
+                                    |}
+                                |}
+                                |title {
+                                    |userPreferred
+                                |}
+                                |coverImage {
+                                    |large
+                                |}
+                                |format
+                                |status
+                                |chapters
+                                |description
+                                |startDate {
+                                    |year
+                                    |month
+                                    |day
+                                |}
+                                |averageScore
+                            |}
+                        |}
+                    |}
+                |}
+            |}
+            |
+            """.trimMargin()
+            val payload = buildJsonObject {
+                put("query", query)
+                putJsonObject("variables") {
+                    put("id", track.remote_id)
+                }
+            }
+            with(json) {
+                authClient.newCall(
+                    POST(
+                        API_URL,
+                        body = payload.toString().toRequestBody(jsonMime),
+                    ),
+                )
+                    .awaitSuccess()
+                    .parseAs<ALRecommendationsResult>()
+                    .data.media.recommendations.nodes
+                    .mapNotNull { it.mediaRecommendation?.toALManga()?.toTrack() }
+            }
+        }
     }
 
     fun createOAuth(token: String): ALOAuth {

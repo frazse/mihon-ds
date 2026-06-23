@@ -25,6 +25,7 @@ import eu.kanade.domain.manga.model.chaptersFiltered
 import eu.kanade.domain.manga.model.downloadedFilter
 import eu.kanade.domain.manga.model.toSManga
 import eu.kanade.domain.track.interactor.AddTracks
+import eu.kanade.domain.track.interactor.GetRecommendations
 import eu.kanade.domain.track.interactor.RefreshTracks
 import eu.kanade.domain.track.interactor.TrackChapter
 import eu.kanade.domain.track.model.AutoTrackState
@@ -38,6 +39,7 @@ import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.tachiyomi.data.track.EnhancedTracker
 import eu.kanade.tachiyomi.data.track.TrackerManager
+import eu.kanade.tachiyomi.data.track.model.TrackSearch
 import eu.kanade.tachiyomi.network.HttpException
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
@@ -248,6 +250,7 @@ class MangaScreenModel(
                     async { if (needRefreshChapter) fetchChaptersFromSource() },
                 )
                 fetchFromSourceTasks.awaitAll()
+                fetchRecommendations()
             }
 
             // Initial loading finished
@@ -277,6 +280,20 @@ class MangaScreenModel(
                 }
             }
     }
+
+    private suspend fun fetchRecommendations() {
+        if (!trackPreferences.showRecommendations().get()) return
+
+        try {
+            updateSuccessState { it.copy(isRecommendationsLoading = true) }
+            val getRecommendations = Injekt.get<GetRecommendations>()
+            val recommendations = getRecommendations.await(mangaId)
+            updateSuccessState { it.copy(recommendations = recommendations, isRecommendationsLoading = false) }
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e)
+            updateSuccessState { it.copy(isRecommendationsLoading = false) }
+        }
+    }
     // KMK <--
 
     fun fetchAllFromSource(manualFetch: Boolean = true) {
@@ -286,6 +303,7 @@ class MangaScreenModel(
                 async { syncTrackers() },
                 async { fetchMangaFromSource(manualFetch) },
                 async { fetchChaptersFromSource(manualFetch) },
+                async { fetchRecommendations() },
             )
             fetchFromSourceTasks.awaitAll()
             updateSuccessState { it.copy(isRefreshingData = false) }
@@ -1130,6 +1148,9 @@ class MangaScreenModel(
                             hasLoggedInTrackers = hasLoggedInTrackers,
                         )
                     }
+                    if (trackingCount > 0) {
+                        fetchRecommendations()
+                    }
                 }
         }
     }
@@ -1199,6 +1220,8 @@ class MangaScreenModel(
             val dialog: Dialog? = null,
             val hasPromptedToAddBefore: Boolean = false,
             val hideMissingChapters: Boolean = false,
+            val recommendations: List<TrackSearch> = emptyList(),
+            val isRecommendationsLoading: Boolean = false,
         ) : State {
             val processedChapters by lazy {
                 chapters.applyFilters(manga).toList()

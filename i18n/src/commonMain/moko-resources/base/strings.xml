@@ -240,6 +240,8 @@
     <string name="pref_appearance_summary">Theme, date &amp; time format</string>
     <string name="pref_library_summary">Categories, global update, chapter swipe</string>
     <string name="pref_reader_summary">Reading mode, display, navigation</string>
+    <string name="reader_controls">Reader controls</string>
+    <string name="reader_controls_summary">Hardware buttons and controller mapping</string>
     <string name="pref_downloads_summary">Automatic download, download ahead</string>
     <string name="pref_tracking_summary">One-way progress sync, enhanced sync</string>
     <string name="pref_browse_summary">Sources, extensions, global search</string>
@@ -565,6 +567,7 @@
     <!-- Tracking section -->
     <string name="tracking_guide">Tracking guide</string>
     <string name="pref_auto_update_manga_sync">Update progress after reading</string>
+    <string name="pref_show_recommendations">Show recommendations</string>
     <string name="pref_auto_update_manga_on_mark_read">Update progress when marked as read</string>
     <string name="pref_auto_sync_read_chapters">Auto sync read chapters from Trackers</string>
     <string name="panel_sort_row_based">Row-based (default)</string>
@@ -855,6 +858,7 @@
     <string name="manga_tracking_tab">Tracking</string>
     <string name="add_tracking">Add tracking</string>
     <string name="action_track">Track</string>
+    <string name="recommendations">Recommendations</string>
     <string name="unread">Unread</string>
     <string name="reading">Reading</string>
     <string name="completed">Completed</string>
@@ -1123,4 +1127,51 @@
     <string name="migrationListScreen.migrateDialog.cancelLabel">Cancel</string>
     <string name="migrationListScreen.progressDialog.cancelLabel">Cancel</string>
     <string name="migrationListScreen.matchWithoutChapterToast">No chapters found, this entry cannot be used for migration</string>
+
+    <!-- Reader Input -->
+    <string name="reader_input_layer_paged">Paged reader</string>
+    <string name="reader_input_layer_webtoon">Webtoon reader</string>
+    <string name="reader_input_layer_guided_reading">Guided reading</string>
+
+    <string name="reader_action_next">Next page/chapter</string>
+    <string name="reader_action_previous">Previous page/chapter</string>
+    <string name="reader_action_next_chapter">Next chapter</string>
+    <string name="reader_action_previous_chapter">Previous chapter</string>
+    <string name="reader_action_toggle_menu">Toggle menu</string>
+    <string name="reader_action_toggle_companion_page">Toggle dashboard/companion page</string>
+    <string name="reader_action_toggle_guided_reading">Toggle guided reading</string>
+    <string name="reader_action_open_reader_settings">Open reader settings</string>
+    <string name="reader_action_next_panel">Next panel</string>
+    <string name="reader_action_previous_panel">Previous panel</string>
+    <string name="reader_action_next_page">Next page</string>
+    <string name="reader_action_previous_page">Previous page</string>
+    <string name="reader_action_scroll_down">Scroll down</string>
+    <string name="reader_action_scroll_up">Scroll up</string>
+    <string name="reader_action_fast_scroll_down">Fast scroll down</string>
+    <string name="reader_action_fast_scroll_up">Fast scroll up</string>
+    <string name="reader_action_hold_scroll_down">Hold to scroll down</string>
+    <string name="reader_action_hold_scroll_up">Hold to scroll up</string>
+
+    <string name="reader_input_conflict_title">Binding conflict</string>
+    <string name="reader_input_capture_title">Record input</string>
+    <string name="reader_input_conflict_body">This input is already mapped to \"%s\". Do you want to replace it?</string>
+    <string name="reader_input_capture_body_buttons_only">Press a button on your controller or device to bind it to this action.</string>
+    <string name="reader_input_capture_body">Press a button or move an axis on your controller or device to bind it to this action.</string>
+    <string name="reader_input_replace">Replace</string>
+    <string name="reader_input_capture_save">Save</string>
+    <string name="reader_input_capture_cancel">Cancel</string>
+
+    <string name="reader_input_global_mappings">Global mappings</string>
+    <string name="reader_input_mode_overrides">Mode-specific overrides</string>
+    <string name="reader_input_reset_all">Reset all mappings</string>
+    <string name="reader_input_hold_scroll_speed">Hold scroll speed</string>
+    <string name="reader_input_link_hold_scroll_speeds">Link forward and backward speeds</string>
+    <string name="reader_input_forward_hold_scroll_speed">Forward hold scroll speed</string>
+    <string name="reader_input_backward_hold_scroll_speed">Backward hold scroll speed</string>
+    <string name="reader_input_using_global">Using global mapping</string>
+    <string name="reader_input_delete_binding">Delete mapping</string>
+    <string name="reader_input_add_binding">Add mapping</string>
+
+    <string name="pref_secondary_display_scroll_sensitivity">Secondary display scroll sensitivity</string>
+    <string name="pref_secondary_display_scroll_sensitivity_summary">Sensitivity of scrolling on the secondary display</string>
 </resources>

@@ -44,4 +44,6 @@ class TrackPreferences(
     )
 
     fun autoSyncReadChapters() = preferenceStore.getBoolean("pref_auto_sync_read_chapters_key", false)
+
+    fun showRecommendations() = preferenceStore.getBoolean("pref_show_recommendations", true)
 }

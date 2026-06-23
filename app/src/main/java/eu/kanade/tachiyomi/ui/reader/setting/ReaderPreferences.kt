@@ -6,12 +6,17 @@ import dev.icerock.moko.resources.StringResource
 import eu.kanade.tachiyomi.ui.reader.panel.PanelFocusEffect
 import eu.kanade.tachiyomi.ui.reader.panel.PanelReadingSettings
 import eu.kanade.tachiyomi.ui.reader.panel.PanelSortingAlgorithm
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import eu.kanade.tachiyomi.ui.reader.input.ReaderInputProfile
+import eu.kanade.tachiyomi.ui.reader.input.ReaderInputProfileJson
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getEnum
 import tachiyomi.i18n.MR
 
 class ReaderPreferences(
     private val preferenceStore: PreferenceStore,
+    private val json: Json,
 ) {
 
     // region General
@@ -103,6 +108,24 @@ class ReaderPreferences(
     fun skipDupe() = preferenceStore.getBoolean("skip_dupe", false)
 
     fun webtoonDisableZoomOut() = preferenceStore.getBoolean("webtoon_disable_zoom_out", false)
+
+    fun secondaryDisplayScrollSensitivity() =
+        preferenceStore.getInt("secondary_display_scroll_sensitivity", SECONDARY_DISPLAY_SCROLL_SENSITIVITY_DEFAULT)
+
+    fun webtoonHoldScrollSpeedsLinked() = preferenceStore.getBoolean("webtoon_hold_scroll_speeds_linked", true)
+
+    fun webtoonHoldScrollForwardSpeed() =
+        preferenceStore.getInt("webtoon_hold_scroll_forward_speed", WEBTOON_HOLD_SCROLL_SPEED_DEFAULT)
+
+    fun webtoonHoldScrollBackwardSpeed() =
+        preferenceStore.getInt("webtoon_hold_scroll_backward_speed", WEBTOON_HOLD_SCROLL_SPEED_DEFAULT)
+
+    fun readerInputProfile() = preferenceStore.getObjectFromString(
+        "reader_input_profile",
+        ReaderInputProfile(),
+        { json.encodeToString(it) },
+        { ReaderInputProfileJson.decodeOrDefault(json, it) },
+    )
 
     // endregion
 
@@ -213,6 +236,14 @@ class ReaderPreferences(
     }
 
     companion object {
+        const val SECONDARY_DISPLAY_SCROLL_SENSITIVITY_MIN = 10
+        const val SECONDARY_DISPLAY_SCROLL_SENSITIVITY_MAX = 500
+        const val SECONDARY_DISPLAY_SCROLL_SENSITIVITY_DEFAULT = 100
+
+        const val WEBTOON_HOLD_SCROLL_SPEED_MIN = 10
+        const val WEBTOON_HOLD_SCROLL_SPEED_MAX = 500
+        const val WEBTOON_HOLD_SCROLL_SPEED_DEFAULT = 100
+
         const val WEBTOON_PADDING_MIN = 0
         const val WEBTOON_PADDING_MAX = 25
 

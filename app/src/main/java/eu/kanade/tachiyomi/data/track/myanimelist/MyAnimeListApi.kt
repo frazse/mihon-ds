@@ -103,6 +103,22 @@ class MyAnimeListApi(
         }
     }
 
+    suspend fun getRecommendations(remoteId: Long): List<TrackSearch> {
+        return withIOContext {
+            val url = "$BASE_API_URL/manga".toUri().buildUpon()
+                .appendPath(remoteId.toString())
+                .appendQueryParameter("fields", "recommendations{$SEARCH_FIELDS}")
+                .build()
+            with(json) {
+                authClient.newCall(GET(url.toString()))
+                    .awaitSuccess()
+                    .parseAs<MALManga>()
+                    .recommendations
+                    .map { parseSearchItem(it.node) }
+            }
+        }
+    }
+
     suspend fun updateItem(track: Track): Track {
         return withIOContext {
             val formBodyBuilder = FormBody.Builder()

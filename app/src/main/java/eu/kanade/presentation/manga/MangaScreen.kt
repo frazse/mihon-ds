@@ -54,10 +54,12 @@ import eu.kanade.presentation.manga.components.MangaActionRow
 import eu.kanade.presentation.manga.components.MangaBottomActionMenu
 import eu.kanade.presentation.manga.components.MangaChapterListItem
 import eu.kanade.presentation.manga.components.MangaInfoBox
+import eu.kanade.presentation.manga.components.MangaRecommendations
 import eu.kanade.presentation.manga.components.MangaToolbar
 import eu.kanade.presentation.manga.components.MissingChapterCountListItem
 import eu.kanade.presentation.util.formatChapterNumber
 import eu.kanade.tachiyomi.data.download.model.Download
+import eu.kanade.tachiyomi.data.track.model.TrackSearch
 import eu.kanade.tachiyomi.source.getNameForMangaInfo
 import eu.kanade.tachiyomi.ui.manga.ChapterList
 import eu.kanade.tachiyomi.ui.manga.MangaScreenModel
@@ -100,6 +102,7 @@ fun MangaScreen(
     onRefresh: () -> Unit,
     onContinueReading: () -> Unit,
     onSearch: (query: String, global: Boolean) -> Unit,
+    onRecommendationClicked: (TrackSearch) -> Unit,
 
     // For cover dialog
     onCoverClicked: () -> Unit,
@@ -153,6 +156,7 @@ fun MangaScreen(
             onRefresh = onRefresh,
             onContinueReading = onContinueReading,
             onSearch = onSearch,
+            onRecommendationClicked = onRecommendationClicked,
             onCoverClicked = onCoverClicked,
             onShareClicked = onShareClicked,
             onDownloadActionClicked = onDownloadActionClicked,
@@ -189,6 +193,7 @@ fun MangaScreen(
             onRefresh = onRefresh,
             onContinueReading = onContinueReading,
             onSearch = onSearch,
+            onRecommendationClicked = onRecommendationClicked,
             onCoverClicked = onCoverClicked,
             onShareClicked = onShareClicked,
             onDownloadActionClicked = onDownloadActionClicked,
@@ -231,6 +236,7 @@ private fun MangaScreenSmallImpl(
     onRefresh: () -> Unit,
     onContinueReading: () -> Unit,
     onSearch: (query: String, global: Boolean) -> Unit,
+    onRecommendationClicked: (TrackSearch) -> Unit,
 
     // For cover dialog
     onCoverClicked: () -> Unit,
@@ -419,6 +425,17 @@ private fun MangaScreenSmallImpl(
                     }
 
                     item(
+                        key = MangaScreenItem.RECOMMENDATIONS,
+                        contentType = MangaScreenItem.RECOMMENDATIONS,
+                    ) {
+                        MangaRecommendations(
+                            recommendations = state.recommendations,
+                            isLoading = state.isRecommendationsLoading,
+                            onClick = onRecommendationClicked,
+                        )
+                    }
+
+                    item(
                         key = MangaScreenItem.CHAPTER_HEADER,
                         contentType = MangaScreenItem.CHAPTER_HEADER,
                     ) {
@@ -473,6 +490,7 @@ fun MangaScreenLargeImpl(
     onRefresh: () -> Unit,
     onContinueReading: () -> Unit,
     onSearch: (query: String, global: Boolean) -> Unit,
+    onRecommendationClicked: (TrackSearch) -> Unit,
 
     // For cover dialog
     onCoverClicked: () -> Unit,
@@ -639,6 +657,11 @@ fun MangaScreenLargeImpl(
                             onTagSearch = onTagSearch,
                             onCopyTagToClipboard = onCopyTagToClipboard,
                             onEditNotes = onEditNotesClicked,
+                        )
+                        MangaRecommendations(
+                            recommendations = state.recommendations,
+                            isLoading = state.isRecommendationsLoading,
+                            onClick = onRecommendationClicked,
                         )
                     }
                 },

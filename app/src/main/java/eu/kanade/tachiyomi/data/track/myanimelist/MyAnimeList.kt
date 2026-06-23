@@ -135,6 +135,10 @@ class MyAnimeList(id: Long) : BaseTracker(id, "MyAnimeList"), DeletableTracker {
         return fetchRemoteTrack(track) ?: add(track)
     }
 
+    override suspend fun getRecommendations(track: Track): List<TrackSearch> {
+        return api.getRecommendations(track.remote_id)
+    }
+
     override suspend fun fetchRemoteTrack(track: Track): Track? {
         return api.findListItem(track)
     }

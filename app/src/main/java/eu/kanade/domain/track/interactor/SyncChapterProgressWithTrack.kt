@@ -23,22 +23,48 @@ class SyncChapterProgressWithTrack(
         remoteTrack: Track,
         tracker: Tracker,
     ) {
-        // EnhancedTrackers like Suwayomi manage read state themselves —
-        // syncing chapter progress from them is redundant and can cause all
-        // chapters to be incorrectly marked as read due to numbering mismatches.
-        if (tracker is EnhancedTracker) return
+        if (tracker !is EnhancedTracker) return
 
+        sync(mangaId, remoteTrack, tracker, updateRemote = true)
+    }
+
+    suspend fun syncFromTrack(
+        mangaId: Long,
+        remoteTrack: Track,
+        tracker: Tracker,
+    ) {
+        sync(mangaId, remoteTrack, tracker, updateRemote = false)
+    }
+
+    private suspend fun sync(
+        mangaId: Long,
+        remoteTrack: Track,
+        tracker: Tracker,
+        updateRemote: Boolean,
+    ) {
         // Current chapters in database
         val sortedChapters = getChaptersByMangaId.await(mangaId)
-            .sortedBy { it.chapterNumber }
+            .sortedByDescending { it.sourceOrder }
             .filter { it.isRecognizedNumber }
 
         // Chapters to update to follow tracker
-        val maxLocalChapter = sortedChapters.lastOrNull()?.chapterNumber?.toDouble() ?: 0.0
-        val chapterUpdates = if (remoteTrack.lastChapterRead > 0.0 && maxLocalChapter > 0.0) {
+        var lastNumber = 0.0
+        val chapterUpdates = if (!tracker.hasNotStartedReading(remoteTrack.status) &&
+            remoteTrack.lastChapterRead > 0.0 &&
+            sortedChapters.isNotEmpty()
+        ) {
+            val maxLocalChapter = sortedChapters.maxOf { it.chapterNumber }.toDouble()
             val effectiveLastRead = minOf(remoteTrack.lastChapterRead, maxLocalChapter)
+
             sortedChapters
-                .filter { chapter -> chapter.chapterNumber <= effectiveLastRead && !chapter.read }
+                .takeWhile {
+                    val matches = it.chapterNumber >= lastNumber && it.chapterNumber <= effectiveLastRead
+                    if (matches) {
+                        lastNumber = it.chapterNumber.toDouble()
+                    }
+                    matches
+                }
+                .filter { !it.read }
                 .map { it.copy(read = true).toChapterUpdate() }
         } else {
             emptyList()
@@ -51,7 +77,7 @@ class SyncChapterProgressWithTrack(
 
         try {
             // Update Tracker to localLastRead if needed
-            if (updatedTrack.lastChapterRead > remoteTrack.lastChapterRead) {
+            if (updateRemote && updatedTrack.lastChapterRead > remoteTrack.lastChapterRead) {
                 tracker.update(updatedTrack.toDbTrack())
                 // update Track in database
                 insertTrack.await(updatedTrack)

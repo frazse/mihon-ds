@@ -19,6 +19,14 @@ data class MALManga(
     @SerialName("start_date")
     val startDate: String?,
     val authors: List<MALAuthorNode> = emptyList(),
+    val recommendations: List<MALRecommendation> = emptyList(),
+)
+
+@Serializable
+data class MALRecommendation(
+    val node: MALManga,
+    @SerialName("num_recommendations")
+    val numRecommendations: Int,
 )
 
 @Serializable
