@@ -65,6 +65,10 @@ abstract class SearchScreenModel(
     }
 
     init {
+        if (pinnedSources.isEmpty()) {
+            mutableState.update { it.copy(sourceFilter = SourceFilter.All) }
+        }
+
         screenModelScope.launch {
             preferences.globalSearchFilterState().changes().collectLatest { state ->
                 mutableState.update { it.copy(onlyShowHasResults = state) }
