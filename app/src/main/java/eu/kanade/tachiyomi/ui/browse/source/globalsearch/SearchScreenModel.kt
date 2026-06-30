@@ -65,6 +65,11 @@ abstract class SearchScreenModel(
     }
 
     init {
+        val defaultSourceFilter = defaultSearchSourceFilter(pinnedSources)
+        if (defaultSourceFilter == SourceFilter.All && state.value.sourceFilter == SourceFilter.PinnedOnly) {
+            mutableState.update { it.copy(sourceFilter = defaultSourceFilter) }
+        }
+
         screenModelScope.launch {
             preferences.globalSearchFilterState().changes().collectLatest { state ->
                 mutableState.update { it.copy(onlyShowHasResults = state) }
@@ -235,6 +240,10 @@ abstract class SearchScreenModel(
 enum class SourceFilter {
     All,
     PinnedOnly,
+}
+
+internal fun defaultSearchSourceFilter(pinnedSources: Set<String>): SourceFilter {
+    return if (pinnedSources.isEmpty()) SourceFilter.All else SourceFilter.PinnedOnly
 }
 
 sealed interface SearchItemResult {
