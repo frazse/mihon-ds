@@ -41,6 +41,52 @@ class PanelSorterTest {
     }
 
     @Test
+    fun `keeps lower right panel after spanning upper panels for RTL`() {
+        val panels = listOf(
+            panel(id = "lower-right", left = 780f, top = 492f, width = 485f, height = 340f),
+            panel(id = "middle-strip", left = 625f, top = 155f, width = 150f, height = 660f),
+            panel(id = "left-large", left = 90f, top = 155f, width = 525f, height = 660f),
+            panel(id = "right-top", left = 780f, top = 155f, width = 485f, height = 285f),
+            panel(id = "wide-strip", left = 90f, top = 850f, width = 1175f, height = 280f),
+            panel(id = "bottom-left", left = 0f, top = 1130f, width = 680f, height = 660f),
+            panel(id = "bottom-right", left = 690f, top = 1130f, width = 575f, height = 860f),
+            panel(id = "left-face", left = 0f, top = 1720f, width = 680f, height = 480f),
+        )
+
+        val result = PanelSorter.sort(panels, PanelReadingDirection.RIGHT_TO_LEFT)
+
+        assertEquals(
+            listOf(
+                "right-top",
+                "middle-strip",
+                "left-large",
+                "lower-right",
+                "wide-strip",
+                "bottom-right",
+                "bottom-left",
+                "left-face",
+            ),
+            result.map { it.id },
+        )
+    }
+
+    @Test
+    fun `keeps slightly staggered top edges in the same row`() {
+        val panels = listOf(
+            panel(id = "right", left = 220f, top = 24f),
+            panel(id = "left", left = 20f, top = 12f),
+            panel(id = "bottom", left = 20f, top = 220f),
+        )
+
+        val result = PanelSorter.sort(panels, PanelReadingDirection.LEFT_TO_RIGHT)
+
+        assertEquals(
+            listOf("left", "right", "bottom"),
+            result.map { it.id },
+        )
+    }
+
+    @Test
     fun `filters invalid tiny panels`() {
         val panels = listOf(
             panel(id = "valid", left = 20f, top = 20f, width = 120f, height = 120f),
