@@ -31,20 +31,16 @@ object PanelSorter {
     ): List<ReaderPanel> {
         val sorted = valid.sortedBy { it.bounds.top }
 
-        val rowTolerance = sorted
+        val rowTopTolerance = sorted
             .map { it.height }
             .sorted()
-            .let { heights -> heights[heights.lastIndex / 2] * 0.75f }
+            .let { heights -> heights[heights.lastIndex / 2] * ROW_TOP_TOLERANCE_HEIGHT_RATIO }
             .coerceAtLeast(MIN_ROW_TOLERANCE)
 
         val rows = mutableListOf<MutableList<ReaderPanel>>()
         sorted.forEach { panel ->
             val row = rows.firstOrNull { existing ->
-                val rowTop = existing.minOf { it.bounds.top }
-                val rowBottom = existing.maxOf { it.bounds.bottom }
-                val verticalOverlap = panel.bounds.top < rowBottom && panel.bounds.bottom > rowTop
-                val centerClose = abs(existing.averageCenterY() - panel.centerY) <= rowTolerance
-                verticalOverlap || centerClose
+                abs(existing.rowTop() - panel.bounds.top) <= rowTopTolerance
             }
             if (row != null) {
                 row += panel
@@ -133,8 +129,8 @@ object PanelSorter {
     private val ReaderPanel.centerX: Float
         get() = bounds.left + width / 2f
 
-    private fun List<ReaderPanel>.averageCenterY(): Float {
-        return sumOf { it.centerY.toDouble() }.toFloat() / size
+    private fun List<ReaderPanel>.rowTop(): Float {
+        return minOf { it.bounds.top }
     }
 
     private fun List<ReaderPanel>.removeDuplicatePanels(): List<ReaderPanel> {
@@ -181,7 +177,8 @@ object PanelSorter {
 
     private const val MIN_PANEL_SIZE = 8f
     private const val MIN_ROW_TOLERANCE = 24f
-    private const val DUPLICATE_IOU_THRESHOLD = 0.55f
+    private const val ROW_TOP_TOLERANCE_HEIGHT_RATIO = 0.2f
+    private const val DUPLICATE_IOU_THRESHOLD = 0.72f
     private const val CONTAINED_DUPLICATE_COVERAGE_THRESHOLD = 0.9f
     private const val CONTAINED_DUPLICATE_SIZE_RATIO_THRESHOLD = 0.65f
 }
