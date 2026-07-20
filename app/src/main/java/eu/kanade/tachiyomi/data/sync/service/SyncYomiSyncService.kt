@@ -57,28 +57,62 @@ class SyncYomiSyncService(
         SYNC_CANCELLED,
     }
 
-    override suspend fun doSync(syncData: SyncData): Backup? {
+    override suspend fun doSync(
+        localBackupCreator: suspend () -> Backup,
+        isLocalDirty: Boolean,
+    ): Backup? {
         reportSyncEvent(SyncEventStatus.SYNC_STARTED)
 
         try {
             val (remoteData, etag) = pullSyncData()
 
-            val finalSyncData = if (remoteData != null) {
-                assert(etag.isNotEmpty()) { "ETag should never be empty if remote data is not null" }
-                logcat(LogPriority.DEBUG, "SyncService") {
-                    "Try update remote data with ETag($etag)"
+            if (remoteData == null) {
+                // Remote server not modified (304) or not found
+                if (!isLocalDirty) {
+                    logcat(LogPriority.INFO) { "Both local and remote are clean, skipping sync" }
+                    reportSyncEvent(SyncEventStatus.SYNC_SUCCESS)
+                    return null
                 }
-                mergeSyncData(syncData, remoteData)
-            } else {
-                // init or overwrite remote data
-                logcat(LogPriority.DEBUG) {
-                    "Try overwrite remote data with ETag($etag)"
+
+                // Local is dirty, remote is not. Push local to remote.
+                val localBackup = localBackupCreator()
+                val localSyncData = SyncData(
+                    deviceId = syncPreferences.uniqueDeviceID(),
+                    backup = localBackup,
+                )
+                val success = pushSyncData(localSyncData, etag)
+                if (success) {
+                    reportSyncEvent(SyncEventStatus.SYNC_SUCCESS)
+                } else {
+                    reportSyncEvent(SyncEventStatus.SYNC_FAILED, "Failed to push sync data")
+                    // Throw to prevent SyncManager from updating timestamp
+                    throw SyncYomiException("Failed to push sync data")
                 }
-                syncData
+                // Return null so SyncManager knows there's nothing to restore/merge
+                return null
             }
 
-            val success = pushSyncData(finalSyncData, etag)
+            // Remote data is available
+            if (!isLocalDirty) {
+                // Local is clean, remote is dirty. Just take remote data.
+                logcat(LogPriority.INFO) { "Local is clean, applying remote changes" }
+                reportSyncEvent(SyncEventStatus.SYNC_SUCCESS)
+                return remoteData.backup
+            }
 
+            // Both local and remote are dirty. Merge and push.
+            val localBackup = localBackupCreator()
+            val localSyncData = SyncData(
+                deviceId = syncPreferences.uniqueDeviceID(),
+                backup = localBackup,
+            )
+
+            logcat(LogPriority.DEBUG, "SyncService") {
+                "Merging local and remote changes with ETag($etag)"
+            }
+            val finalSyncData = mergeSyncData(localSyncData, remoteData)
+
+            val success = pushSyncData(finalSyncData, etag)
             if (success) {
                 reportSyncEvent(SyncEventStatus.SYNC_SUCCESS)
             } else {

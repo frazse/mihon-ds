@@ -231,7 +231,7 @@ class MangaRestorer(
                     dateUpload = null,
                     chapterId = chapter.id,
                     version = chapter.version,
-                    isSyncing = 0,
+                    isSyncing = 1,
                 )
             }
         }

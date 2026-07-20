@@ -11,7 +11,6 @@ import eu.kanade.tachiyomi.data.backup.models.BackupManga
 import eu.kanade.tachiyomi.data.backup.restore.BackupRestoreJob
 import eu.kanade.tachiyomi.data.backup.restore.RestoreOptions
 import eu.kanade.tachiyomi.data.backup.restore.restorers.MangaRestorer
-import eu.kanade.tachiyomi.data.sync.service.SyncData
 import eu.kanade.tachiyomi.data.sync.service.SyncYomiSyncService
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.protobuf.ProtoBuf
@@ -19,6 +18,7 @@ import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.data.Chapters
 import tachiyomi.data.DatabaseHandler
+import tachiyomi.data.manga.MangaMapper
 import tachiyomi.data.manga.MangaMapper.mapManga
 import tachiyomi.domain.category.interactor.GetCategories
 import tachiyomi.domain.manga.model.Manga
@@ -44,6 +44,7 @@ class SyncManager(
         ignoreUnknownKeys = true
     },
     private val getCategories: GetCategories = Injekt.get(),
+    private val protoBuf: ProtoBuf = Injekt.get(),
 ) {
     private val backupCreator: BackupCreator = BackupCreator(context, false)
     private val notifier: SyncNotifier = SyncNotifier(context)
@@ -67,49 +68,45 @@ class SyncManager(
      */
     suspend fun syncData() {
         // Reset isSyncing in case it was left over or failed syncing during restore.
-        handler.await<Unit>(inTransaction = true) {
+        handler.await(inTransaction = true) {
             mangasQueries.resetIsSyncing()
             chaptersQueries.resetIsSyncing()
         }
 
+        val syncStartTime = Date().time
         val syncOptions = syncPreferences.getSyncSettings()
-        val databaseManga = getAllMangaThatNeedsSync()
+        val lastSyncTimestamp = syncPreferences.lastSyncTimestamp.get() / 1000
 
-        val backupOptions = BackupOptions(
-            libraryEntries = syncOptions.libraryEntries,
-            categories = syncOptions.categories,
-            chapters = syncOptions.chapters,
-            tracking = syncOptions.tracking,
-            history = syncOptions.history,
-            extensionRepoSettings = syncOptions.extensionRepoSettings,
-            appSettings = syncOptions.appSettings,
-            sourceSettings = syncOptions.sourceSettings,
-            privateSettings = syncOptions.privateSettings,
+        val isLocalDirty = try {
+            val modifiedMangaCount = handler.awaitOne { mangasQueries.countModifiedSince(lastSyncTimestamp) }
+            val modifiedChapterCount = handler.awaitOne { chaptersQueries.countModifiedSince(lastSyncTimestamp) }
+            (modifiedMangaCount > 0) || (modifiedChapterCount > 0)
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "Failed to check local dirty state" }
+            true
+        }
 
-            // SY -->
-            customInfo = syncOptions.customInfo,
-            readEntries = syncOptions.readEntries,
-            savedSearches = syncOptions.savedSearches,
-            // SY <--
-        )
+        val localBackupCreator: suspend () -> Backup = {
+            val backupOptions = BackupOptions(
+                libraryEntries = syncOptions.libraryEntries,
+                categories = syncOptions.categories,
+                chapters = syncOptions.chapters,
+                tracking = syncOptions.tracking,
+                history = syncOptions.history,
+                extensionRepoSettings = syncOptions.extensionRepoSettings,
+                appSettings = syncOptions.appSettings,
+                sourceSettings = syncOptions.sourceSettings,
+                privateSettings = syncOptions.privateSettings,
 
-        logcat(LogPriority.DEBUG) { "Begin create backup" }
-        val backupManga = backupCreator.backupMangas(databaseManga, backupOptions)
-        val backup = Backup(
-            backupManga = backupManga,
-            backupCategories = backupCreator.backupCategories(backupOptions),
-            backupSources = backupCreator.backupSources(backupManga),
-            backupPreferences = backupCreator.backupAppPreferences(backupOptions),
-            backupSourcePreferences = backupCreator.backupSourcePreferences(backupOptions),
-            backupExtensionRepo = backupCreator.backupExtensionRepos(backupOptions),
-        )
-        logcat(LogPriority.DEBUG) { "End create backup" }
+                // SY -->
+                customInfo = syncOptions.customInfo,
+                readEntries = syncOptions.readEntries,
+                savedSearches = syncOptions.savedSearches,
+                // SY <--
+            )
 
-        // Create the SyncData object
-        val syncData = SyncData(
-            deviceId = syncPreferences.uniqueDeviceID(),
-            backup = backup,
-        )
+            getIncrementalBackup(lastSyncTimestamp, backupOptions)
+        }
 
         // Handle sync based on the selected service
         val syncService = when (val syncService = SyncService.fromInt(syncPreferences.syncService.get())) {
@@ -128,21 +125,17 @@ class SyncManager(
             }
         }
 
-        val remoteBackup = syncService?.doSync(syncData)
+        val remoteBackup = syncService?.doSync(localBackupCreator, isLocalDirty)
 
         if (remoteBackup == null) {
-            logcat(LogPriority.DEBUG) { "Skip restore due to network issues" }
-            // should we call showSyncError?
+            logcat(LogPriority.DEBUG) { "Skip restore due to network issues or clean sync" }
+            // Update timestamp on successful push or idle sync
+            syncPreferences.lastSyncTimestamp.set(syncStartTime)
             return
         }
 
-        if (remoteBackup === syncData.backup) {
-            // nothing changed
-            logcat(LogPriority.DEBUG) { "Skip restore due to remote was overwrite from local" }
-            syncPreferences.lastSyncTimestamp.set(Date().time)
-            notifier.showSyncSuccess("Sync completed successfully")
-            return
-        }
+        // Cache the merged state for future incremental syncs
+        saveBackupToCache(remoteBackup)
 
         // Stop the sync early if the remote backup is null or empty
         if (remoteBackup.backupManga.isEmpty() && remoteBackup.backupCategories.isEmpty() && remoteBackup.backupSources.isEmpty()) {
@@ -151,9 +144,9 @@ class SyncManager(
         }
 
         // Check if it's first sync based on lastSyncTimestamp
-        if (syncPreferences.lastSyncTimestamp.get() == 0L && databaseManga.isNotEmpty()) {
+        if (syncPreferences.lastSyncTimestamp.get() == 0L) {
             // It's first sync no need to restore data. (just update remote data)
-            syncPreferences.lastSyncTimestamp.set(Date().time)
+            syncPreferences.lastSyncTimestamp.set(syncStartTime)
             notifier.showSyncSuccess("Updated remote data successfully")
             return
         }
@@ -161,42 +154,33 @@ class SyncManager(
         val (filteredFavorites, nonFavorites) = filterFavoritesAndNonFavorites(remoteBackup)
         updateNonFavorites(nonFavorites)
 
-        val newSyncData = backup.copy(
-            backupManga = filteredFavorites,
-            backupCategories = remoteBackup.backupCategories,
-            backupSources = remoteBackup.backupSources,
-            backupPreferences = remoteBackup.backupPreferences,
-            backupSourcePreferences = remoteBackup.backupSourcePreferences,
-            backupExtensionRepo = remoteBackup.backupExtensionRepo,
-        )
-
-        val hasMangaChanges = filteredFavorites.isNotEmpty()
-        val hasCategoryChanges = remoteBackup.backupCategories != backup.backupCategories
-        val hasSourceChanges = remoteBackup.backupSources != backup.backupSources
-        val hasPreferenceChanges = remoteBackup.backupPreferences != backup.backupPreferences
-        val hasSourcePreferenceChanges = remoteBackup.backupSourcePreferences != backup.backupSourcePreferences
-        val hasExtensionRepoChanges = remoteBackup.backupExtensionRepo != backup.backupExtensionRepo
-        val hasSavedSearchChanges = false
-
-        if (!hasMangaChanges && !hasCategoryChanges && !hasSourceChanges &&
-            !hasPreferenceChanges && !hasSourcePreferenceChanges &&
-            !hasExtensionRepoChanges && !hasSavedSearchChanges
+        if (filteredFavorites.isEmpty() &&
+            remoteBackup.backupCategories.isEmpty() &&
+            remoteBackup.backupSources.isEmpty() &&
+            remoteBackup.backupPreferences.isEmpty() &&
+            remoteBackup.backupSourcePreferences.isEmpty() &&
+            remoteBackup.backupExtensionRepo.isEmpty()
         ) {
-            // update the sync timestamp
-            syncPreferences.lastSyncTimestamp.set(Date().time)
+            logcat(LogPriority.DEBUG) { "No changes to restore from remote" }
+            syncPreferences.lastSyncTimestamp.set(syncStartTime)
             notifier.showSyncSuccess("Sync completed successfully")
             return
         }
+
+        // We use remoteBackup as the base for restoration as it contains the merged state
+        val newSyncData = remoteBackup.copy(
+            backupManga = filteredFavorites,
+        )
 
         if (syncOptions.categories) {
             val mergedUids = newSyncData.backupCategories.map { it.uid.toString() }.toSet()
             val mergedNames = newSyncData.backupCategories.map { it.name }.toSet()
             val localCategories = getCategories.await().filterNot { it.id == 0L } // Exclude system category
             val categoriesToDelete = localCategories.filter {
-                it.id.toString() !in mergedUids && it.name !in mergedNames
+                (it.id.toString() !in mergedUids) && (it.name !in mergedNames)
             }
             if (categoriesToDelete.isNotEmpty()) {
-                handler.await<Unit>(inTransaction = true) {
+                handler.await(inTransaction = true) {
                     categoriesToDelete.forEach {
                         categoriesQueries.delete(it.id)
                     }
@@ -221,9 +205,93 @@ class SyncManager(
             )
 
             // update the sync timestamp
-            syncPreferences.lastSyncTimestamp.set(Date().time)
+            syncPreferences.lastSyncTimestamp.set(syncStartTime)
+            saveBackupToCache(newSyncData)
+
+            // Reset is_syncing flags after restore is done
+            handler.await(inTransaction = true) {
+                mangasQueries.resetIsSyncing()
+                chaptersQueries.resetIsSyncing()
+            }
         } else {
             logcat(LogPriority.ERROR) { "Failed to write sync data to file" }
+        }
+    }
+
+    private suspend fun getIncrementalBackup(
+        lastSyncTimestamp: Long,
+        backupOptions: BackupOptions,
+    ): Backup {
+        val cacheFile = File(context.cacheDir, "last_sync_backup.proto")
+
+        val modifiedMangaIds = handler.awaitList { mangasQueries.getModifiedIdsSince(lastSyncTimestamp) }.toMutableSet()
+        modifiedMangaIds.addAll(
+            handler.awaitList { chaptersQueries.getMangaIdsWithModifiedChaptersSince(lastSyncTimestamp) },
+        )
+
+        if (cacheFile.exists() && modifiedMangaIds.isNotEmpty()) {
+            try {
+                val cachedBackup = cacheFile.inputStream().use {
+                    protoBuf.decodeFromByteArray(Backup.serializer(), it.readBytes())
+                }
+
+                // Re-backup only modified manga
+                val dirtyMangas = handler.awaitList {
+                    mangasQueries.getMangaByIds(modifiedMangaIds.toList(), MangaMapper::mapManga)
+                }
+
+                logcat(LogPriority.DEBUG) { "Building incremental backup for ${modifiedMangaIds.size} manga" }
+                dirtyMangas.forEach {
+                    logcat(LogPriority.INFO) { "Incremental push for: ${it.title}" }
+                }
+
+                val updatedBackupMangas = backupCreator.backupMangas(dirtyMangas, backupOptions)
+
+                // Patch the list
+                val newMangaList = cachedBackup.backupManga.toMutableList()
+                val updatedUrls = updatedBackupMangas.map { it.url }.toSet()
+
+                // Remove old versions of the updated manga
+                newMangaList.removeAll { it.url in updatedUrls }
+                newMangaList.addAll(updatedBackupMangas)
+
+                return cachedBackup.copy(
+                    backupManga = newMangaList,
+                    backupCategories = backupCreator.backupCategories(backupOptions),
+                    backupSources = backupCreator.backupSources(newMangaList),
+                    backupPreferences = backupCreator.backupAppPreferences(backupOptions),
+                    backupSourcePreferences = backupCreator.backupSourcePreferences(backupOptions),
+                    backupExtensionRepo = backupCreator.backupExtensionRepos(backupOptions),
+                )
+            } catch (e: Exception) {
+                logcat(LogPriority.ERROR, e) { "Failed to load incremental cache, falling back to full backup" }
+            }
+        }
+
+        // Full backup fallback
+        logcat(LogPriority.DEBUG) { "Performing full library backup" }
+        val databaseManga = getAllMangaThatNeedsSync()
+        val backupManga = backupCreator.backupMangas(databaseManga, backupOptions)
+        val fullBackup = Backup(
+            backupManga = backupManga,
+            backupCategories = backupCreator.backupCategories(backupOptions),
+            backupSources = backupCreator.backupSources(backupManga),
+            backupPreferences = backupCreator.backupAppPreferences(backupOptions),
+            backupSourcePreferences = backupCreator.backupSourcePreferences(backupOptions),
+            backupExtensionRepo = backupCreator.backupExtensionRepos(backupOptions),
+        )
+        saveBackupToCache(fullBackup)
+        return fullBackup
+    }
+
+    private fun saveBackupToCache(backup: Backup) {
+        val cacheFile = File(context.cacheDir, "last_sync_backup.proto")
+        try {
+            cacheFile.outputStream().use {
+                it.write(protoBuf.encodeToByteArray(Backup.serializer(), backup))
+            }
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "Failed to save backup to cache" }
         }
     }
 
@@ -253,50 +321,6 @@ class SyncManager(
         return handler.awaitList { mangasQueries.getMangasWithFavoriteTimestamp(::mapManga) }
     }
 
-    private suspend fun isMangaDifferent(localManga: Manga, remoteManga: BackupManga): Boolean {
-        val localChapters = handler.await { chaptersQueries.getChaptersByMangaId(localManga.id, 0).executeAsList() }
-        val localCategories = getCategories.await(localManga.id).map { it.order }
-
-        if (areChaptersDifferent(localChapters, remoteManga.chapters)) {
-            return true
-        }
-
-        if (localManga.version != remoteManga.version) {
-            return true
-        }
-
-        if (localCategories.toSet() != remoteManga.categories.toSet()) {
-            return true
-        }
-
-        return false
-    }
-
-    private fun areChaptersDifferent(localChapters: List<Chapters>, remoteChapters: List<BackupChapter>): Boolean {
-        val localChapterMap = localChapters.associateBy { it.url }
-        val remoteChapterMap = remoteChapters.associateBy { it.url }
-
-        if (localChapterMap.size != remoteChapterMap.size) {
-            return true
-        }
-
-        for ((url, localChapter) in localChapterMap) {
-            val remoteChapter = remoteChapterMap[url]
-
-            // If a matching remote chapter doesn't exist, or fields are different, consider them different
-            if (remoteChapter == null ||
-                localChapter.version != remoteChapter.version ||
-                localChapter.source_order != remoteChapter.sourceOrder ||
-                localChapter.name != remoteChapter.name ||
-                localChapter.chapter_number.toFloat() != remoteChapter.chapterNumber
-            ) {
-                return true
-            }
-        }
-
-        return false
-    }
-
     /**
      * Filters the favorite and non-favorite manga from the backup and checks
      * if the favorite manga is different from the local database.
@@ -322,17 +346,23 @@ class SyncManager(
                 when {
                     // Checks if the manga is in favorites and needs updating or adding
                     remoteManga.favorite -> {
-                        if (localManga == null || isMangaDifferent(localManga, remoteManga)) {
-                            logcat(LogPriority.DEBUG) { "filterFavoritesAndNonFavorites: Adding to favorites: ${remoteManga.title}" }
+                        if (localManga == null) {
+                            logcat(LogPriority.DEBUG) { "filterFavoritesAndNonFavorites: New remote favorite: ${remoteManga.title}" }
                             favorites.add(remoteManga)
-                        } else {
-                            logcat(LogPriority.DEBUG) { "filterFavoritesAndNonFavorites: Already up-to-date favorite: ${remoteManga.title}" }
+                        } else if (localManga.version < remoteManga.version) {
+                            logcat(LogPriority.DEBUG) { "filterFavoritesAndNonFavorites: Remote has newer version for: ${remoteManga.title} (Local: ${localManga.version}, Remote: ${remoteManga.version})" }
+                            favorites.add(remoteManga)
+                        } else if (localManga.version == remoteManga.version && remoteManga.chapters.size > localMangaMap[compositeKey]?.id?.let { id -> handler.await { chaptersQueries.getChaptersByMangaId(id, 0).executeAsList().size } } ?: 0) {
+                             logcat(LogPriority.DEBUG) { "filterFavoritesAndNonFavorites: Remote has more chapters for: ${remoteManga.title}" }
+                             favorites.add(remoteManga)
                         }
                     }
                     // Handle non-favorites
                     !remoteManga.favorite -> {
-                        logcat(LogPriority.DEBUG) { "filterFavoritesAndNonFavorites: Adding to non-favorites: ${remoteManga.title}" }
-                        nonFavorites.add(remoteManga)
+                        if (localManga?.favorite == true) {
+                             logcat(LogPriority.DEBUG) { "filterFavoritesAndNonFavorites: Remote unfavorited: ${remoteManga.title}" }
+                             nonFavorites.add(remoteManga)
+                        }
                     }
                 }
             }

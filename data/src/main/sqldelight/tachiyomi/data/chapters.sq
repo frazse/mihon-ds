@@ -27,6 +27,13 @@ CREATE INDEX idx_chapters_url ON chapters(url);
 CREATE TRIGGER update_last_modified_at_chapters
 AFTER UPDATE ON chapters
 FOR EACH ROW
+WHEN new.is_syncing = 0 AND (
+    new.read != old.read OR
+    new.bookmark != old.bookmark OR
+    new.last_page_read != old.last_page_read OR
+    new.source_order != old.source_order OR
+    new.name != old.name
+)
 BEGIN
   UPDATE chapters
   SET last_modified_at = strftime('%s', 'now')
@@ -122,3 +129,13 @@ WHERE _id = :chapterId;
 
 selectLastInsertedRowId:
 SELECT last_insert_rowid();
+
+countModifiedSince:
+SELECT count(*)
+FROM chapters
+WHERE last_modified_at > :timestamp;
+
+getMangaIdsWithModifiedChaptersSince:
+SELECT DISTINCT manga_id
+FROM chapters
+WHERE last_modified_at > :timestamp;

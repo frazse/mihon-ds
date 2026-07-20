@@ -100,13 +100,14 @@ class SyncDataJob(private val context: Context, workerParams: WorkerParameters) 
         fun startNow(context: Context, manual: Boolean = false) {
             val wm = context.workManager
             if (wm.isRunning(TAG_JOB)) {
-                // Already running either as a scheduled or manual job
+                // Already running
                 return
             }
             val tag = if (manual) TAG_MANUAL else TAG_AUTO
             val request = OneTimeWorkRequestBuilder<SyncDataJob>()
                 .addTag(TAG_JOB)
                 .addTag(tag)
+                .setInitialDelay(if (manual) 0 else 30, TimeUnit.SECONDS)
                 .build()
             context.workManager.enqueueUniqueWork(tag, ExistingWorkPolicy.KEEP, request)
         }

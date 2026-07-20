@@ -46,6 +46,16 @@ END;
 CREATE TRIGGER update_last_modified_at_mangas
 AFTER UPDATE ON mangas
 FOR EACH ROW
+WHEN new.is_syncing = 0 AND (
+    new.url != old.url OR
+    new.description != old.description OR
+    new.favorite != old.favorite OR
+    new.genre != old.genre OR
+    new.title != old.title OR
+    new.status != old.status OR
+    new.thumbnail_url != old.thumbnail_url OR
+    new.notes != old.notes
+)
 BEGIN
   UPDATE mangas
   SET last_modified_at = strftime('%s', 'now')
@@ -53,19 +63,30 @@ BEGIN
 END;
 
 CREATE TRIGGER update_manga_version AFTER UPDATE ON mangas
+WHEN new.is_syncing = 0 AND (
+    new.url != old.url OR
+    new.description != old.description OR
+    new.favorite != old.favorite OR
+    new.genre != old.genre OR
+    new.title != old.title OR
+    new.status != old.status OR
+    new.thumbnail_url != old.thumbnail_url OR
+    new.notes != old.notes
+)
 BEGIN
     UPDATE mangas SET version = version + 1
-    WHERE _id = new._id AND new.is_syncing = 0 AND (
-        new.url != old.url OR
-        new.description != old.description OR
-        new.favorite != old.favorite
-    );
+    WHERE _id = new._id;
 END;
 
 getMangaById:
 SELECT *
 FROM mangas
 WHERE _id = :id;
+
+getMangaByIds:
+SELECT *
+FROM mangas
+WHERE _id IN :ids;
 
 -- TODO: this should ideally never really have more than 1 result
 getMangaByUrlAndSource:
@@ -225,6 +246,16 @@ WHERE _id = :mangaId;
 
 selectLastInsertedRowId:
 SELECT last_insert_rowid();
+
+countModifiedSince:
+SELECT count(*)
+FROM mangas
+WHERE last_modified_at > :timestamp;
+
+getModifiedIdsSince:
+SELECT _id
+FROM mangas
+WHERE last_modified_at > :timestamp;
 
 insertNetworkManga {
     -- Insert the manga if it doesn't exist already

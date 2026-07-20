@@ -27,7 +27,10 @@ abstract class SyncService(
     val json: Json,
     val syncPreferences: SyncPreferences,
 ) {
-    abstract suspend fun doSync(syncData: SyncData): Backup?
+    abstract suspend fun doSync(
+        localBackupCreator: suspend () -> Backup,
+        isLocalDirty: Boolean,
+    ): Backup?
 
     /**
      * Merges the local and remote sync data into a single JSON string.
