@@ -24,6 +24,7 @@ import eu.kanade.domain.manga.interactor.UpdateManga
 import eu.kanade.domain.manga.model.chaptersFiltered
 import eu.kanade.domain.manga.model.downloadedFilter
 import eu.kanade.domain.manga.model.toSManga
+import eu.kanade.domain.sync.SyncPreferences
 import eu.kanade.domain.track.interactor.AddTracks
 import eu.kanade.domain.track.interactor.GetRecommendations
 import eu.kanade.domain.track.interactor.RefreshTracks
@@ -370,6 +371,11 @@ class MangaScreenModel(
                         updateManga.awaitUpdateCoverLastModified(manga.id)
                     }
                     withUIContext { onRemoved() }
+
+                    val syncTriggerOpt = Injekt.get<SyncPreferences>().getSyncTriggerOptions()
+                    if (Injekt.get<SyncPreferences>().isSyncEnabled() && syncTriggerOpt.syncOnLibraryChange) {
+                        eu.kanade.tachiyomi.data.sync.SyncDataJob.startNow(context)
+                    }
                 }
             } else {
                 // Add to library
@@ -408,6 +414,11 @@ class MangaScreenModel(
 
                 // Finally match with enhanced tracking when available
                 addTracks.bindEnhancedTrackers(manga, state.source)
+
+                val syncTriggerOpt = Injekt.get<SyncPreferences>().getSyncTriggerOptions()
+                if (Injekt.get<SyncPreferences>().isSyncEnabled() && syncTriggerOpt.syncOnLibraryChange) {
+                    eu.kanade.tachiyomi.data.sync.SyncDataJob.startNow(context)
+                }
             }
         }
     }
@@ -491,6 +502,11 @@ class MangaScreenModel(
 
         screenModelScope.launchIO {
             updateManga.awaitUpdateFavorite(manga.id, true)
+
+            val syncTriggerOpt = Injekt.get<SyncPreferences>().getSyncTriggerOptions()
+            if (Injekt.get<SyncPreferences>().isSyncEnabled() && syncTriggerOpt.syncOnLibraryChange) {
+                eu.kanade.tachiyomi.data.sync.SyncDataJob.startNow(context)
+            }
         }
     }
 
@@ -507,6 +523,11 @@ class MangaScreenModel(
     private fun moveMangaToCategory(categoryIds: List<Long>) {
         screenModelScope.launchIO {
             setMangaCategories.await(mangaId, categoryIds)
+
+            val syncTriggerOpt = Injekt.get<SyncPreferences>().getSyncTriggerOptions()
+            if (Injekt.get<SyncPreferences>().isSyncEnabled() && syncTriggerOpt.syncOnLibraryChange) {
+                eu.kanade.tachiyomi.data.sync.SyncDataJob.startNow(context)
+            }
         }
     }
 

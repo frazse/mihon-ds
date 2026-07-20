@@ -31,6 +31,8 @@ import mihon.domain.migration.usecases.MigrateMangaUseCase
 import mihon.feature.migration.list.models.MigratingManga
 import mihon.feature.migration.list.models.MigratingManga.SearchResult
 import mihon.feature.migration.list.search.SmartSourceSearchEngine
+import eu.kanade.domain.sync.SyncPreferences
+import eu.kanade.tachiyomi.data.sync.SyncDataJob
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
@@ -291,6 +293,11 @@ class MigrationListScreenModel(
                 }
 
                 navigateBack()
+
+                val syncTriggerOpt = Injekt.get<SyncPreferences>().getSyncTriggerOptions()
+                if (Injekt.get<SyncPreferences>().isSyncEnabled() && syncTriggerOpt.syncOnLibraryChange) {
+                    SyncDataJob.startNow(Injekt.get())
+                }
             } finally {
                 mutableState.update { it.copy(dialog = null) }
                 migrateJob = null
@@ -312,6 +319,11 @@ class MigrationListScreenModel(
             val manga = items.find { it.manga.id == mangaId } ?: return@launchIO
             val target = (manga.searchResult.value as? SearchResult.Success)?.manga ?: return@launchIO
             migrateManga(current = manga.manga, target = target, replace = replace)
+
+            val syncTriggerOpt = Injekt.get<SyncPreferences>().getSyncTriggerOptions()
+            if (Injekt.get<SyncPreferences>().isSyncEnabled() && syncTriggerOpt.syncOnLibraryChange) {
+                SyncDataJob.startNow(Injekt.get())
+            }
 
             removeManga(mangaId)
         }

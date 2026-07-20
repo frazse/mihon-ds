@@ -12,6 +12,8 @@ import eu.kanade.core.util.fastFilterNot
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.chapter.interactor.SetReadStatus
 import eu.kanade.domain.manga.interactor.UpdateManga
+import eu.kanade.domain.sync.SyncPreferences
+import eu.kanade.tachiyomi.data.sync.SyncDataJob
 import eu.kanade.presentation.components.SEARCH_DEBOUNCE_MILLIS
 import eu.kanade.presentation.library.components.LibraryToolbarTitle
 import eu.kanade.presentation.manga.DownloadAction
@@ -554,6 +556,11 @@ class LibraryScreenModel(
                     )
                 }
                 updateManga.awaitAll(toDelete)
+
+                val syncTriggerOpt = Injekt.get<SyncPreferences>().getSyncTriggerOptions()
+                if (Injekt.get<SyncPreferences>().isSyncEnabled() && syncTriggerOpt.syncOnLibraryChange) {
+                    SyncDataJob.startNow(Injekt.get())
+                }
             }
 
             if (deleteChapters) {
@@ -584,6 +591,11 @@ class LibraryScreenModel(
                     .toList()
 
                 setMangaCategories.await(manga.id, categoryIds)
+            }
+
+            val syncTriggerOpt = Injekt.get<SyncPreferences>().getSyncTriggerOptions()
+            if (Injekt.get<SyncPreferences>().isSyncEnabled() && syncTriggerOpt.syncOnLibraryChange) {
+                SyncDataJob.startNow(Injekt.get())
             }
         }
     }

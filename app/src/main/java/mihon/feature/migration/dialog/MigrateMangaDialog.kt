@@ -23,11 +23,15 @@ import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
 import eu.kanade.domain.manga.model.hasCustomCover
 import eu.kanade.domain.source.service.SourcePreferences
+import eu.kanade.domain.sync.SyncPreferences
 import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.download.DownloadManager
+import eu.kanade.tachiyomi.data.sync.SyncDataJob
 import kotlinx.coroutines.flow.update
 import mihon.domain.migration.models.MigrationFlag
 import mihon.domain.migration.usecases.MigrateMangaUseCase
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import mihon.feature.common.utils.getLabel
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.withUIContext
@@ -171,6 +175,11 @@ private class MigrateDialogScreenModel(
         mutableState.update { it.copy(isMigrating = true) }
         migrateManga(current, target, replace)
         mutableState.update { it.copy(isMigrating = false, isMigrated = true) }
+
+        val syncTriggerOpt = Injekt.get<SyncPreferences>().getSyncTriggerOptions()
+        if (Injekt.get<SyncPreferences>().isSyncEnabled() && syncTriggerOpt.syncOnLibraryChange) {
+            SyncDataJob.startNow(Injekt.get())
+        }
     }
 
     data class State(

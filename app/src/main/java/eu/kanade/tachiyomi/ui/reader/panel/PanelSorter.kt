@@ -126,9 +126,6 @@ object PanelSorter {
 
     // ── Shared helpers ────────────────────────────────────────────────────────
 
-    private val ReaderPanel.centerX: Float
-        get() = bounds.left + width / 2f
-
     private fun List<ReaderPanel>.rowTop(): Float {
         return minOf { it.bounds.top }
     }

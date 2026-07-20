@@ -283,8 +283,13 @@ class SyncManager(
         for ((url, localChapter) in localChapterMap) {
             val remoteChapter = remoteChapterMap[url]
 
-            // If a matching remote chapter doesn't exist, or the version numbers are different, consider them different
-            if (remoteChapter == null || localChapter.version != remoteChapter.version) {
+            // If a matching remote chapter doesn't exist, or fields are different, consider them different
+            if (remoteChapter == null ||
+                localChapter.version != remoteChapter.version ||
+                localChapter.source_order != remoteChapter.sourceOrder ||
+                localChapter.name != remoteChapter.name ||
+                localChapter.chapter_number.toFloat() != remoteChapter.chapterNumber
+            ) {
                 return true
             }
         }

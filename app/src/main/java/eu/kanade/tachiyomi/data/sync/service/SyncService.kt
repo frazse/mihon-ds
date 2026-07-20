@@ -214,7 +214,7 @@ abstract class SyncService(
         }
 
         fun chapterCompositeKey(chapter: BackupChapter): String {
-            return "${chapter.url}|${chapter.name}|${chapter.chapterNumber}"
+            return chapter.url
         }
 
         val localChapterMap = localChapters.associateBy { chapterCompositeKey(it) }
@@ -255,19 +255,16 @@ abstract class SyncService(
                 }
                 localChapter != null && remoteChapter != null -> {
                     // Use version number to decide which chapter to keep
-                    val chosenChapter = if (localChapter.version >= remoteChapter.version) {
-                        // If there mare more chapter on remote, local sourceOrder will need to be updated to maintain correct source order.
-                        if (localChapters.size < remoteChapters.size) {
-                            localChapter.copy(sourceOrder = remoteChapter.sourceOrder)
-                        } else {
-                            localChapter
-                        }
-                    } else {
-                        remoteChapter
+                    val chosenChapter = when {
+                        remoteChapter.version > localChapter.version -> remoteChapter
+                        localChapter.version > remoteChapter.version -> localChapter
+                        // Same version; prefer remote if it has more/same metadata or consistency
+                        remoteChapters.size >= localChapters.size -> remoteChapter
+                        else -> localChapter
                     }
                     logcat(LogPriority.DEBUG, logTag) {
                         "Merging chapter: ${chosenChapter.name}. Chosen version from: ${
-                            if (localChapter.version >= remoteChapter.version) "Local" else "Remote"
+                            if (chosenChapter === localChapter) "Local" else "Remote"
                         }, Local version: ${localChapter.version}, Remote version: ${remoteChapter.version}."
                     }
                     chosenChapter
