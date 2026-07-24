@@ -192,6 +192,25 @@ private fun ColumnScope.PagerViewerSettings(screenModel: ReaderSettingsScreenMod
             }
         }
 
+        CheckboxItem(
+            label = stringResource(MR.strings.pref_panel_secondary_overlay),
+            pref = screenModel.preferences.panelReadingSecondaryOverlay(),
+        )
+
+        val panelFocusEffectSecondary by screenModel.preferences.panelReadingFocusEffectSecondary().collectAsState()
+        SettingsChipRow(MR.strings.pref_panel_focus_effect_secondary) {
+            listOf(
+                PanelFocusEffect.OFF to MR.strings.off,
+                PanelFocusEffect.DARKEN to MR.strings.pref_panel_focus_effect_darken,
+            ).map { (effect, title) ->
+                FilterChip(
+                    selected = panelFocusEffectSecondary == effect,
+                    onClick = { screenModel.preferences.panelReadingFocusEffectSecondary().set(effect) },
+                    label = { Text(stringResource(title)) },
+                )
+            }
+        }
+
         if (panelFocusEffect != PanelFocusEffect.OFF) {
             val panelFocusStrength by screenModel.preferences.panelReadingFocusStrength().collectAsState()
             SliderItem(

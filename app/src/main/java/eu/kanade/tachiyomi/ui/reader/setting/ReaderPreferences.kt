@@ -91,6 +91,13 @@ class ReaderPreferences(
 
     fun panelReadingPrimaryOverlay() = preferenceStore.getBoolean("pref_panel_reading_primary_overlay", true)
 
+    fun panelReadingSecondaryOverlay() = preferenceStore.getBoolean("pref_panel_reading_secondary_overlay", true)
+
+    fun panelReadingFocusEffectSecondary() = preferenceStore.getEnum(
+        "pref_panel_reading_focus_effect_secondary",
+        PanelFocusEffect.DARKEN,
+    )
+
     fun landscapeZoom() = preferenceStore.getBoolean("landscape_zoom", true)
 
     fun cropBordersWebtoon() = preferenceStore.getBoolean("crop_borders_webtoon", false)

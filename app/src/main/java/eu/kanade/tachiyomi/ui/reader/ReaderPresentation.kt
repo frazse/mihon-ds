@@ -194,7 +194,8 @@ class ReaderPresentation(
         val isRtl = readingMode == ReadingMode.RIGHT_TO_LEFT
         val panelReadingPreferenceEnabled by activity.readerPreferences.panelReadingPaged().collectAsState()
         val panelTransitionMillis by activity.readerPreferences.panelReadingTransitionMillis().collectAsState()
-        val panelFocusEffect by activity.readerPreferences.panelReadingFocusEffect().collectAsState()
+        val panelFocusEffectSecondary by activity.readerPreferences.panelReadingFocusEffectSecondary().collectAsState()
+        val panelSecondaryOverlay by activity.readerPreferences.panelReadingSecondaryOverlay().collectAsState()
         val panelFocusStrength by activity.readerPreferences.panelReadingFocusStrength().collectAsState()
         val panelReadingState by activity.panelReadingController.state.collectAsState()
         val panelReadingEnabled = ReaderPanelReadingMode.isActive(
@@ -304,9 +305,9 @@ class ReaderPresentation(
                                 }
                                 view.applyPanelReadingDisplayConfig(
                                     panelTransitionDuration = panelTransitionMillis,
-                                    panelFocusEffect = panelFocusEffect,
+                                    panelFocusEffect = panelFocusEffectSecondary,
                                     panelFocusStrength = panelFocusStrength,
-                                    panelPrimaryOverlay = true,
+                                    panelPrimaryOverlay = panelSecondaryOverlay,
                                 )
                                 val panelKey = panelReadingState.key
                                 if (panelMapEnabled && activePanel != null && panelKey != null) {
