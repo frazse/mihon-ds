@@ -500,6 +500,9 @@
     <string name="pref_panel_secondary_overlay">Show highlights on secondary screen</string>
     <string name="pref_panel_focus_effect">Backdrop on main screen</string>
     <string name="pref_panel_focus_effect_secondary">Backdrop on secondary screen</string>
+    <string name="pref_panel_reading_direction">Panel reading order</string>
+    <string name="panel_reading_direction_ltr">Left to Right</string>
+    <string name="panel_reading_direction_rtl">Right to Left</string>
     <string name="pref_panel_focus_effect_darken">Darken</string>
     <string name="pref_panel_focus_strength">Backdrop strength</string>
     <string name="panel_indicator">Panel %1$d/%2$d</string>

@@ -225,6 +225,23 @@ private fun ColumnScope.PagerViewerSettings(screenModel: ReaderSettingsScreenMod
                 },
             )
         }
+
+        val panelReadingDirection by screenModel.preferences.panelReadingDirection().collectAsState()
+        SettingsChipRow(MR.strings.pref_panel_reading_direction) {
+            val directions = remember {
+                listOf(
+                    eu.kanade.tachiyomi.ui.reader.panel.PanelReadingDirection.LEFT_TO_RIGHT to MR.strings.panel_reading_direction_ltr,
+                    eu.kanade.tachiyomi.ui.reader.panel.PanelReadingDirection.RIGHT_TO_LEFT to MR.strings.panel_reading_direction_rtl,
+                )
+            }
+            directions.map { (direction, title) ->
+                FilterChip(
+                    selected = panelReadingDirection == direction,
+                    onClick = { screenModel.preferences.panelReadingDirection().set(direction) },
+                    label = { Text(stringResource(title)) },
+                )
+            }
+        }
     }
 
     val dualPageSplitPaged by screenModel.preferences.dualPageSplitPaged().collectAsState()

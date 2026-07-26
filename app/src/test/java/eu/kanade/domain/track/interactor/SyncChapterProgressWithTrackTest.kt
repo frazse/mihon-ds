@@ -34,7 +34,7 @@ class SyncChapterProgressWithTrackTest {
     @Test
     fun `auto sync progress from trackers defaults to disabled`() {
         TrackPreferences(InMemoryPreferenceStore())
-            .autoSyncProgressFromTrackers()
+            .autoSyncReadChapters()
             .get() shouldBe false
     }
 

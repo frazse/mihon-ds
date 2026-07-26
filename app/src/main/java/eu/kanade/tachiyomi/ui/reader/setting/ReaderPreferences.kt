@@ -71,7 +71,7 @@ class ReaderPreferences(
 
     fun panelSortingAlgorithm() = preferenceStore.getEnum(
         "pref_panel_sorting_algorithm",
-        PanelSortingAlgorithm.ROW_BASED,
+        PanelSortingAlgorithm.XY_CUT,
     )
 
     fun panelReadingTransitionMillis() = preferenceStore.getInt(
@@ -96,6 +96,11 @@ class ReaderPreferences(
     fun panelReadingFocusEffectSecondary() = preferenceStore.getEnum(
         "pref_panel_reading_focus_effect_secondary",
         PanelFocusEffect.DARKEN,
+    )
+
+    fun panelReadingDirection() = preferenceStore.getEnum(
+        "pref_panel_reading_direction",
+        eu.kanade.tachiyomi.ui.reader.panel.PanelReadingDirection.RIGHT_TO_LEFT,
     )
 
     fun landscapeZoom() = preferenceStore.getBoolean("landscape_zoom", true)

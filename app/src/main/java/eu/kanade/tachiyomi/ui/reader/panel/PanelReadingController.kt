@@ -281,7 +281,9 @@ class PanelReadingController(
         rawPanels: List<ReaderPanel>,
         preferredPanelIndex: Int,
     ) {
-        val panels = PanelSorter.sort(rawPanels, readingDirection(), readerPreferences.panelSortingAlgorithm().get())
+        val direction = readingDirection()
+        logcat(LogPriority.INFO) { "Activating page ${key.pageIndex} with direction: $direction" }
+        val panels = PanelSorter.sort(rawPanels, direction, readerPreferences.panelSortingAlgorithm().get())
         val panelIndex = when {
             panels.isEmpty() -> -1
             preferredPanelIndex < 0 -> 0

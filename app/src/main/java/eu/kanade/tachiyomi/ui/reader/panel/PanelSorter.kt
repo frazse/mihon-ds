@@ -29,18 +29,21 @@ object PanelSorter {
         valid: List<ReaderPanel>,
         direction: PanelReadingDirection,
     ): List<ReaderPanel> {
-        val sorted = valid.sortedBy { it.bounds.top }
-
-        val rowTopTolerance = sorted
-            .map { it.height }
-            .sorted()
-            .let { heights -> heights[heights.lastIndex / 2] * ROW_TOP_TOLERANCE_HEIGHT_RATIO }
-            .coerceAtLeast(MIN_ROW_TOLERANCE)
+        val sorted = valid.sortedBy { it.centerY }
 
         val rows = mutableListOf<MutableList<ReaderPanel>>()
         sorted.forEach { panel ->
             val row = rows.firstOrNull { existing ->
-                abs(existing.rowTop() - panel.bounds.top) <= rowTopTolerance
+                val existingCenter = existing.rowCenterY()
+                val existingHeight = existing.maxOf { it.height }
+                val tolerance = max(MIN_ROW_TOLERANCE, existingHeight * ROW_CENTER_TOLERANCE_RATIO)
+
+                // Group if centers are close AND height difference isn't massive
+                val heightDiffRatio = abs(existingHeight - panel.height) / max(existingHeight, panel.height)
+                val centerDistance = abs(existingCenter - panel.centerY)
+
+                (centerDistance <= tolerance && heightDiffRatio < 0.4f) ||
+                    panel.verticalOverlapWith(existing) > 0.8f
             }
             if (row != null) {
                 row += panel
@@ -50,7 +53,7 @@ object PanelSorter {
         }
 
         return rows
-            .sortedBy { row -> row.minOf { it.bounds.top } }
+            .sortedBy { it.rowCenterY() }
             .flatMap { row ->
                 when (direction) {
                     PanelReadingDirection.LEFT_TO_RIGHT -> row.sortedBy { it.bounds.left }
@@ -103,32 +106,42 @@ object PanelSorter {
     }
 
     private fun findHorizontalCut(panels: List<ReaderPanel>): Float? {
-        val bottoms = panels.map { it.bounds.bottom }.sorted()
+        val yCoords = panels.flatMap { listOf(it.bounds.top, it.bounds.bottom) }.distinct().sorted()
         val minTop = panels.minOf { it.bounds.top }
-        val maxBottom = bottoms.last()
-        return bottoms.dropLast(1).firstOrNull { cutY ->
-            cutY > minTop &&
-                cutY < maxBottom &&
-                panels.none { it.bounds.top < cutY && it.bounds.bottom > cutY }
+        val maxBottom = panels.maxOf { it.bounds.bottom }
+
+        // Look for gaps between panel vertical boundaries
+        for (i in 0 until yCoords.size - 1) {
+            val cutY = (yCoords[i] + yCoords[i + 1]) / 2f
+            if (cutY <= minTop || cutY >= maxBottom) continue
+
+            // A cut is valid if it doesn't cross any panel's "body"
+            val isClean = panels.none { panel ->
+                panel.bounds.top < cutY && panel.bounds.bottom > cutY
+            }
+            if (isClean) return cutY
         }
+        return null
     }
 
     private fun findVerticalCut(panels: List<ReaderPanel>): Float? {
-        val rights = panels.map { it.bounds.right }.sorted()
+        val xCoords = panels.flatMap { listOf(it.bounds.left, it.bounds.right) }.distinct().sorted()
         val minLeft = panels.minOf { it.bounds.left }
-        val maxRight = rights.last()
-        return rights.dropLast(1).firstOrNull { cutX ->
-            cutX > minLeft &&
-                cutX < maxRight &&
-                panels.none { it.bounds.left < cutX && it.bounds.right > cutX }
+        val maxRight = panels.maxOf { it.bounds.right }
+
+        for (i in 0 until xCoords.size - 1) {
+            val cutX = (xCoords[i] + xCoords[i + 1]) / 2f
+            if (cutX <= minLeft || cutX >= maxRight) continue
+
+            val isClean = panels.none { panel ->
+                panel.bounds.left < cutX && panel.bounds.right > cutX
+            }
+            if (isClean) return cutX
         }
+        return null
     }
 
     // ── Shared helpers ────────────────────────────────────────────────────────
-
-    private fun List<ReaderPanel>.rowTop(): Float {
-        return minOf { it.bounds.top }
-    }
 
     private fun List<ReaderPanel>.removeDuplicatePanels(): List<ReaderPanel> {
         val kept = mutableListOf<ReaderPanel>()
@@ -174,8 +187,24 @@ object PanelSorter {
 
     private const val MIN_PANEL_SIZE = 8f
     private const val MIN_ROW_TOLERANCE = 24f
-    private const val ROW_TOP_TOLERANCE_HEIGHT_RATIO = 0.2f
+    private const val ROW_CENTER_TOLERANCE_RATIO = 0.2f
     private const val DUPLICATE_IOU_THRESHOLD = 0.72f
     private const val CONTAINED_DUPLICATE_COVERAGE_THRESHOLD = 0.9f
     private const val CONTAINED_DUPLICATE_SIZE_RATIO_THRESHOLD = 0.65f
+
+    private fun List<ReaderPanel>.rowCenterY(): Float {
+        return map { it.centerY }.average().toFloat()
+    }
+
+    private fun ReaderPanel.verticalOverlapWith(row: List<ReaderPanel>): Float {
+        val rowMinTop = row.minOf { it.bounds.top }
+        val rowMaxBottom = row.maxOf { it.bounds.bottom }
+        val overlap = min(bounds.bottom, rowMaxBottom) - max(bounds.top, rowMinTop)
+        val overlapAmount = max(0f, overlap)
+
+        // Return overlap relative to the SMALLER height (either panel or row)
+        // This ensures tall panels group with short ones if they align
+        val minHeight = min(height, rowMaxBottom - rowMinTop)
+        return if (minHeight > 0) overlapAmount / minHeight else 0f
+    }
 }

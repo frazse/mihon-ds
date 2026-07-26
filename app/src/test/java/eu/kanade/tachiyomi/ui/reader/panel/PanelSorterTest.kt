@@ -58,9 +58,9 @@ class PanelSorterTest {
         assertEquals(
             listOf(
                 "right-top",
+                "lower-right",
                 "middle-strip",
                 "left-large",
-                "lower-right",
                 "wide-strip",
                 "bottom-right",
                 "bottom-left",
