@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.ui.reader.panel
 
+import android.content.Context
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -24,7 +26,9 @@ class PanelReadingController(
     private val isEnabled: () -> Boolean,
     private val readingDirection: () -> PanelReadingDirection,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val context: Context,
     private val readerPreferences: ReaderPreferences = Injekt.get(),
+    private val correctionStore: PanelCorrectionStore = Injekt.get(),
 ) {
 
     private val cachedRawPanels = LinkedHashMap<PanelPageKey, List<ReaderPanel>>()
@@ -235,6 +239,39 @@ class PanelReadingController(
         return true
     }
 
+    fun manuallySwapPanels(fromIndex: Int, toIndex: Int) {
+        val current = mutableState.value
+        val key = current.key ?: return
+        val rawPanels = cachedRawPanels[key] ?: return
+
+        // 1. Get current sorted list
+        val panels = current.panels.toMutableList()
+        if (fromIndex !in panels.indices || toIndex !in panels.indices) return
+
+        // 2. Perform the swap
+        val temp = panels[fromIndex]
+        panels[fromIndex] = panels[toIndex]
+        panels[toIndex] = temp
+
+        // 3. Persist the new sequence indices relative to the RAW detections
+        // We need to store which RAW index is at which position.
+        val correctedRawIndices = panels.map { p ->
+            val idx = rawPanels.indexOf(p)
+            if (idx == -1) {
+                logcat(LogPriority.ERROR) { "AI TRAINING ERROR: Panel mismatch during save!" }
+            }
+            idx
+        }
+        correctionStore.saveCorrection(rawPanels, correctedRawIndices)
+
+        // 4. Update UI
+        mutableState.value = current.copy(panels = panels)
+
+        // 5. Notify user
+        logcat(LogPriority.INFO) { "AI TRAINING: User corrected order to ${correctedRawIndices.joinToString()}" }
+        context.toast("AI Training: Correction saved!")
+    }
+
     fun activePanelFor(key: PanelPageKey): ReaderPanel? {
         val current = mutableState.value
         return current.activePanel.takeIf { current.key == key }
@@ -297,8 +334,16 @@ class PanelReadingController(
         preferredPanelIndex: Int,
     ) {
         val direction = readingDirection()
-        logcat(LogPriority.INFO) { "Activating page ${key.pageIndex} with direction: $direction" }
-        val panels = PanelSorter.sort(rawPanels, direction, readerPreferences.panelSortingAlgorithm().get())
+
+        // Check for manual correction first
+        val manualIndices = correctionStore.getCorrection(rawPanels)
+        val panels = if (manualIndices != null) {
+            logcat(LogPriority.INFO) { "Applying manual correction for page ${key.pageIndex}" }
+            manualIndices.mapNotNull { rawPanels.getOrNull(it) }
+        } else {
+            PanelSorter.sort(rawPanels, direction, readerPreferences.panelSortingAlgorithm().get())
+        }
+
         val panelIndex = when {
             panels.isEmpty() -> -1
             preferredPanelIndex < 0 -> 0

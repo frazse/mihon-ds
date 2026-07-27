@@ -76,6 +76,8 @@ open class ReaderPageImageView @JvmOverloads constructor(
     private var panelMapActivePanelId: String? = null
     private var panelMapShowNumbers: Boolean = false
     private var panelMapOnPanelTap: ((Int) -> Unit)? = null
+    private var panelMapOnPanelSwap: ((Int, Int) -> Unit)? = null
+    private var panelMapIsCorrectionMode: Boolean = false
     private var panelOverlayMode = PanelOverlayMode.NONE
     private var imageRequestDisposable: Disposable? = null
 
@@ -95,9 +97,14 @@ open class ReaderPageImageView @JvmOverloads constructor(
     open fun onImageLoaded() {
         onImageLoaded?.invoke()
         background = pageBackground
-        pendingPanelFocus?.let {
-            focusOnPanel(it, animate = false)
+        val panel = pendingPanelFocus
+        if (panel != null) {
             pendingPanelFocus = null
+            if (config?.panelFocusEffect != PanelFocusEffect.OFF || panelMapIsCorrectionMode) {
+                focusOnPanel(panel, animate = false)
+            } else {
+                clearPanelOverlay()
+            }
         }
         refreshPanelOverlay()
     }
@@ -312,12 +319,14 @@ open class ReaderPageImageView @JvmOverloads constructor(
         panelPrimaryOverlay: Boolean = true,
     ) {
         val currentConfig = config ?: return
-        config = currentConfig.copy(
+        val newConfig = currentConfig.copy(
             panelTransitionDuration = PanelReadingSettings.normalizeTransitionMillis(panelTransitionDuration),
             panelFocusEffect = panelFocusEffect,
             panelFocusStrength = PanelReadingSettings.normalizeFocusStrength(panelFocusStrength),
             panelPrimaryOverlay = panelPrimaryOverlay,
         )
+        if (config == newConfig) return
+        config = newConfig
         refreshPanelOverlay()
     }
 
@@ -339,17 +348,25 @@ open class ReaderPageImageView @JvmOverloads constructor(
         panels: List<ReaderPanel>,
         activePanel: ReaderPanel?,
         showNumbers: Boolean = true,
+        isCorrectionMode: Boolean = false,
         onPanelTap: ((Int) -> Unit)? = null,
+        onPanelSwap: ((Int, Int) -> Unit)? = null,
     ) {
         panelMapPanels = panels
         panelMapActivePanelId = activePanel?.id
         panelMapShowNumbers = showNumbers
+        panelMapIsCorrectionMode = isCorrectionMode
         panelMapOnPanelTap = onPanelTap
+        panelMapOnPanelSwap = onPanelSwap
         panelOverlayMode = PanelOverlayMode.MAP
         refreshPanelOverlay()
     }
 
     private fun showFocusedPanelOverlay(panel: ReaderPanel) {
+        if (config?.panelFocusEffect == PanelFocusEffect.OFF && !panelMapIsCorrectionMode) {
+            clearPanelOverlay()
+            return
+        }
         panelMapPanels = listOf(panel)
         panelMapActivePanelId = panel.id
         panelMapShowNumbers = false
@@ -364,15 +381,22 @@ open class ReaderPageImageView @JvmOverloads constructor(
         panelMapShowNumbers = false
         panelMapOnPanelTap = null
         panelOverlayMode = PanelOverlayMode.NONE
-        panelHighlightOverlay?.panelRegions = emptyList()
-        panelHighlightOverlay?.onPanelClick = null
-        panelHighlightOverlay?.isVisible = false
+        panelHighlightOverlay?.let { removeView(it) }
+        panelHighlightOverlay = null
     }
 
     private fun refreshPanelOverlay() {
-        if (panelMapPanels.isEmpty() || shouldHidePrimaryFocusOverlay()) {
-            panelHighlightOverlay?.panelRegions = emptyList()
+        val focusOff = config?.panelFocusEffect == PanelFocusEffect.OFF ||
+                      uy.kohesive.injekt.Injekt.get<eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences>().panelReadingFocusEffect().get() == PanelFocusEffect.OFF
+
+        if (
+            panelMapPanels.isEmpty() ||
+            shouldHidePrimaryFocusOverlay() ||
+            (panelOverlayMode == PanelOverlayMode.FOCUS && focusOff && !panelMapIsCorrectionMode)
+        ) {
             panelHighlightOverlay?.isVisible = false
+            panelHighlightOverlay?.let { removeView(it) }
+            panelHighlightOverlay = null
             return
         }
 
@@ -394,16 +418,22 @@ open class ReaderPageImageView @JvmOverloads constructor(
             )
         }
         overlay.panelRegions = regions
+        overlay.isCorrectionMode = panelMapIsCorrectionMode
         overlay.onPanelClick = panelMapOnPanelTap
+        overlay.onSwapPanels = panelMapOnPanelSwap
         overlay.isVisible = regions.isNotEmpty()
-        overlay.bringToFront()
+        if (overlay.isVisible) {
+            overlay.bringToFront()
+        }
     }
 
     private fun shouldHidePrimaryFocusOverlay(): Boolean {
-        return panelOverlayMode == PanelOverlayMode.FOCUS && config?.panelPrimaryOverlay == false
+        return panelOverlayMode == PanelOverlayMode.FOCUS &&
+            (config?.panelPrimaryOverlay == false || config?.panelFocusEffect == PanelFocusEffect.OFF)
     }
 
     private fun refreshPanelOverlayAfterFocusMovement(duration: Long) {
+        if (panelHighlightOverlay == null && panelMapPanels.isEmpty()) return
         post { refreshPanelOverlay() }
         if (duration > 0L) {
             handler?.postDelayed(

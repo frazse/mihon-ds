@@ -42,7 +42,7 @@ import tachiyomi.i18n.MR
  * @constructor creates a new webtoon holder.
  */
 class WebtoonPageHolder(
-    private val frame: ReaderPageImageView,
+    val frame: ReaderPageImageView,
     viewer: WebtoonViewer,
 ) : WebtoonBaseHolder(frame, viewer) {
 
@@ -71,7 +71,7 @@ class WebtoonPageHolder(
     /**
      * Page of a chapter.
      */
-    private var page: ReaderPage? = null
+    var page: ReaderPage? = null
 
     private val scope = MainScope()
 

@@ -48,7 +48,18 @@ class PanelHighlightOverlay @JvmOverloads constructor(
             invalidate()
         }
 
+    var isCorrectionMode: Boolean = false
+        set(value) {
+            field = value
+            if (!value) {
+                draggedPanelIndex = null
+                targetPanelIndex = null
+            }
+            invalidate()
+        }
+
     var onPanelClick: ((Int) -> Unit)? = null
+    var onSwapPanels: ((Int, Int) -> Unit)? = null
 
     private val dimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -72,6 +83,12 @@ class PanelHighlightOverlay @JvmOverloads constructor(
         strokeWidth = 3f
     }
 
+    private val targetOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.YELLOW
+        style = Paint.Style.STROKE
+        strokeWidth = 8f
+    }
+
     private val numberBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(220, 28, 32, 38)
         style = Paint.Style.FILL
@@ -92,30 +109,47 @@ class PanelHighlightOverlay @JvmOverloads constructor(
     private val dimPath = Path()
     private val cornerRadius = 6f
     private val numberBounds = RectF()
+
     private var pressedPanelIndex: Int? = null
+    private var draggedPanelIndex: Int? = null
+    private var targetPanelIndex: Int? = null
+    private var dragX: Float = 0f
+    private var dragY: Float = 0f
 
     override fun onDraw(canvas: Canvas) {
+        if (panelRegions.isEmpty() || (focusEffect == PanelFocusEffect.OFF && !isCorrectionMode)) return
         super.onDraw(canvas)
 
         val activeRegion = panelRegions.firstOrNull { it.active }
-        activeRegion?.let { drawFocusEffect(canvas, it) }
+        if (!isCorrectionMode) {
+            activeRegion?.let { drawFocusEffect(canvas, it) }
+        }
 
-        panelRegions
-            .filterNot { it.active }
-            .forEach { region ->
-                canvas.drawRoundRect(region.bounds, cornerRadius, cornerRadius, inactiveOutlinePaint)
+        panelRegions.forEach { region ->
+            if (region.panelIndex != draggedPanelIndex) {
+                val paint = when {
+                    region.panelIndex == targetPanelIndex -> targetOutlinePaint
+                    region.active && !isCorrectionMode -> activeOutlinePaint
+                    else -> inactiveOutlinePaint
+                }
+                canvas.drawRoundRect(region.bounds, cornerRadius, cornerRadius, paint)
+
+                if (region.active && !isCorrectionMode) {
+                    canvas.drawRoundRect(region.bounds, cornerRadius, cornerRadius, activeAccentPaint)
+                }
+
                 drawNumber(canvas, region)
             }
+        }
 
-        activeRegion?.let { region ->
-            canvas.drawRoundRect(region.bounds, cornerRadius, cornerRadius, activeAccentPaint)
-            canvas.drawRoundRect(region.bounds, cornerRadius, cornerRadius, activeOutlinePaint)
-            drawNumber(canvas, region)
+        // Draw dragged panel last (on top)
+        draggedPanelIndex?.let { idx ->
+            val region = panelRegions.firstOrNull { it.panelIndex == idx } ?: return@let
+            drawNumberAt(canvas, region, dragX, dragY)
         }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val callback = onPanelClick ?: return false
         val hitRegion = panelRegions
             .asReversed()
             .firstOrNull { it.bounds.contains(event.x, event.y) }
@@ -123,24 +157,53 @@ class PanelHighlightOverlay @JvmOverloads constructor(
         return when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 pressedPanelIndex = hitRegion?.panelIndex
+                if (isCorrectionMode && hitRegion != null) {
+                    draggedPanelIndex = hitRegion.panelIndex
+                    dragX = event.x; dragY = event.y
+                    invalidate()
+                }
                 hitRegion != null
             }
-            MotionEvent.ACTION_UP -> {
-                val pressedIndex = pressedPanelIndex
-                pressedPanelIndex = null
-                if (pressedIndex != null && hitRegion?.panelIndex == pressedIndex) {
-                    callback(pressedIndex)
-                    performClick()
+            MotionEvent.ACTION_MOVE -> {
+                if (isCorrectionMode && draggedPanelIndex != null) {
+                    dragX = event.x; dragY = event.y
+                    targetPanelIndex = hitRegion?.panelIndex?.takeIf { it != draggedPanelIndex }
+                    invalidate()
                     true
                 } else {
                     false
                 }
             }
+            MotionEvent.ACTION_UP -> {
+                val pressedIndex = pressedPanelIndex
+                val draggedIndex = draggedPanelIndex
+                val targetIndex = targetPanelIndex
+
+                pressedPanelIndex = null
+                draggedPanelIndex = null
+                targetPanelIndex = null
+
+                if (isCorrectionMode && draggedIndex != null && targetIndex != null) {
+                    onSwapPanels?.invoke(draggedIndex, targetIndex)
+                    invalidate()
+                    true
+                } else if (!isCorrectionMode && pressedIndex != null && hitRegion?.panelIndex == pressedIndex) {
+                    onPanelClick?.invoke(pressedIndex)
+                    performClick()
+                    true
+                } else {
+                    invalidate()
+                    false
+                }
+            }
             MotionEvent.ACTION_CANCEL -> {
                 pressedPanelIndex = null
+                draggedPanelIndex = null
+                targetPanelIndex = null
+                invalidate()
                 false
             }
-            else -> pressedPanelIndex != null
+            else -> pressedPanelIndex != null || draggedPanelIndex != null
         }
     }
 
@@ -150,6 +213,12 @@ class PanelHighlightOverlay @JvmOverloads constructor(
     }
 
     private fun drawNumber(canvas: Canvas, region: PanelRegion) {
+        val left = region.bounds.left + 6f * resources.displayMetrics.density
+        val top = region.bounds.top + 6f * resources.displayMetrics.density
+        drawNumberAt(canvas, region, left, top, isAbsolute = false)
+    }
+
+    private fun drawNumberAt(canvas: Canvas, region: PanelRegion, x: Float, y: Float, isAbsolute: Boolean = true) {
         val number = region.number ?: return
         val text = number.toString()
         val horizontalPadding = 7f * resources.displayMetrics.density
@@ -158,15 +227,16 @@ class PanelHighlightOverlay @JvmOverloads constructor(
             badgeHeight,
             numberTextPaint.measureText(text) + horizontalPadding * 2f,
         )
-        val left = region.bounds.left + 6f * resources.displayMetrics.density
-        val top = region.bounds.top + 6f * resources.displayMetrics.density
+
+        val left = if (isAbsolute) x - badgeWidth / 2f else x
+        val top = if (isAbsolute) y - badgeHeight / 2f else y
         numberBounds.set(left, top, left + badgeWidth, top + badgeHeight)
 
         canvas.drawRoundRect(
             numberBounds,
             badgeHeight / 2f,
             badgeHeight / 2f,
-            if (region.active) activeNumberBackgroundPaint else numberBackgroundPaint,
+            if (region.active && !isCorrectionMode) activeNumberBackgroundPaint else numberBackgroundPaint,
         )
 
         val baseline = numberBounds.centerY() - (numberTextPaint.descent() + numberTextPaint.ascent()) / 2f

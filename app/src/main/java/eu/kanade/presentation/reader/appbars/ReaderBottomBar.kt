@@ -3,6 +3,7 @@ package eu.kanade.presentation.reader.appbars
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,6 +33,8 @@ fun ReaderBottomBar(
     onClickDualScreenMode: (() -> Unit)? = null,
     panelReadingEnabled: Boolean = false,
     onClickPanelReading: (() -> Unit)? = null,
+    isPanelCorrectionMode: Boolean = false,
+    onClickPanelCorrection: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -76,6 +79,16 @@ fun ReaderBottomBar(
                     painter = painterResource(R.drawable.ic_glasses_24dp),
                     contentDescription = stringResource(MR.strings.action_panel_reading),
                     tint = if (panelReadingEnabled) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                )
+            }
+        }
+
+        if (onClickPanelCorrection != null) {
+            IconButton(onClick = onClickPanelCorrection) {
+                Icon(
+                    imageVector = Icons.Outlined.Edit,
+                    contentDescription = stringResource(MR.strings.action_correct_panel_order),
+                    tint = if (isPanelCorrectionMode) MaterialTheme.colorScheme.primary else LocalContentColor.current,
                 )
             }
         }

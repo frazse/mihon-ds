@@ -111,6 +111,7 @@ import mihon.core.dualscreen.DualScreenState
 import mihon.core.dualscreen.utils.FoldableUtils
 import androidx.window.layout.WindowLayoutInfo
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import tachiyomi.core.common.util.system.logcat
@@ -176,6 +177,7 @@ class ReaderActivity : BaseActivity(), ReaderActionTarget {
             readingDirection = {
                 readerPreferences.panelReadingDirection().get()
             },
+            context = this,
         )
     }
 
@@ -214,6 +216,7 @@ class ReaderActivity : BaseActivity(), ReaderActionTarget {
     private var companionPageEnabled = false
     private var isDeviceFoldable = false
     private var foldableStartupSettled = false
+    val isPanelCorrectionMode = MutableStateFlow(false)
 
     // Hinge gap state (ephemeral, not persisted to disk on every rotation)
     private val activeHingeGap = kotlinx.coroutines.flow.MutableStateFlow(0)
@@ -914,6 +917,7 @@ class ReaderActivity : BaseActivity(), ReaderActionTarget {
             panelReadingEnabled = panelReadingPreferenceEnabled,
             readingModePreference = viewModel.getMangaReadingMode(resolveDefault = true),
         )
+        val panelCorrectionMode by isPanelCorrectionMode.collectAsState()
 
         ReaderAppBars(
             visible = state.menuVisible,
@@ -966,6 +970,10 @@ class ReaderActivity : BaseActivity(), ReaderActionTarget {
                 }
             } else {
                 null
+            },
+            isPanelCorrectionMode = panelCorrectionMode,
+            onClickPanelCorrection = {
+                isPanelCorrectionMode.value = !panelCorrectionMode
             },
         )
     }

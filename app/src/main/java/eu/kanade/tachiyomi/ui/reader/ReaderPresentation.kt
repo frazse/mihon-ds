@@ -198,6 +198,7 @@ class ReaderPresentation(
         val panelSecondaryOverlay by activity.readerPreferences.panelReadingSecondaryOverlay().collectAsState()
         val panelFocusStrength by activity.readerPreferences.panelReadingFocusStrength().collectAsState()
         val panelReadingState by activity.panelReadingController.state.collectAsState()
+        val panelCorrectionMode by activity.isPanelCorrectionMode.collectAsState()
         val panelReadingEnabled = ReaderPanelReadingMode.isActive(
             panelReadingEnabled = panelReadingPreferenceEnabled,
             readingModePreference = activity.viewModel.getMangaReadingMode(resolveDefault = true),
@@ -315,12 +316,17 @@ class ReaderPresentation(
                                         panels = panelReadingState.panels,
                                         activePanel = activePanel,
                                         showNumbers = true,
-                                    ) { panelIndex ->
-                                        suppressSecondaryTap()
-                                        activity.panelReadingController.selectPanel(panelKey, panelIndex)
-                                    }
+                                        isCorrectionMode = panelCorrectionMode,
+                                        onPanelTap = { panelIndex ->
+                                            suppressSecondaryTap()
+                                            activity.panelReadingController.selectPanel(panelKey, panelIndex)
+                                        },
+                                        onPanelSwap = { from, to ->
+                                            activity.panelReadingController.manuallySwapPanels(from, to)
+                                        }
+                                    )
                                 } else {
-                                    view.highlightPanel(null)
+                                    view.clearPanelFocus()
                                 }
                             },
                             modifier = Modifier.fillMaxSize()

@@ -90,4 +90,9 @@ interface Viewer {
      * Called when zoom should be reset to default (e.g. double-tap on touchpad).
      */
     fun handleExternalZoomReset() {}
+
+    /**
+     * Refreshes any active panel overlays.
+     */
+    open fun refreshPanelOverlays() {}
 }

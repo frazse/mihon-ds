@@ -506,6 +506,7 @@
     <string name="pref_panel_focus_effect_darken">Darken</string>
     <string name="pref_panel_focus_strength">Backdrop strength</string>
     <string name="panel_indicator">Panel %1$d/%2$d</string>
+    <string name="action_correct_panel_order">Correct panel order</string>
     <string name="panel_detecting">Preparing guided reading...</string>
     <string name="pref_landscape_zoom">Automatically zoom into wide images</string>
     <string name="pref_zoom_start">Zoom start position</string>

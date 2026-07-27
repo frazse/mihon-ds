@@ -25,7 +25,11 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import eu.kanade.tachiyomi.ui.reader.panel.matchesPanelKey
 import tachiyomi.core.common.util.system.logcat
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -110,6 +114,12 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
             .threshold
 
     init {
+        scope.launch {
+            combine(activity.panelReadingController.state, activity.isPanelCorrectionMode) { _, _ ->
+                refreshPanelOverlays()
+            }.collect()
+        }
+
         recycler.setItemViewCacheSize(RECYCLER_VIEW_CACHE_SIZE)
         recycler.isVisible = false // Don't let the recycler layout yet
         recycler.layoutParams = ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT)
@@ -478,6 +488,34 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
             max(0, position - 3),
             min(position + 3, adapter.itemCount - 1),
         )
+    }
+
+    override fun refreshPanelOverlays() {
+        val state = activity.panelReadingController.state.value
+        val correctionMode = activity.isPanelCorrectionMode.value
+        val key = state.key ?: return
+        val activePanel = state.activePanel
+
+        for (i in 0 until recycler.childCount) {
+            val child = recycler.getChildAt(i)
+            val holder = recycler.getChildViewHolder(child) as? WebtoonPageHolder ?: continue
+            val page = holder.page ?: continue
+
+            if (page.matchesPanelKey(key)) {
+                holder.frame.showPanelMap(
+                    panels = state.panels,
+                    activePanel = activePanel,
+                    showNumbers = true,
+                    isCorrectionMode = correctionMode,
+                    onPanelTap = { panelIndex ->
+                        activity.panelReadingController.selectPanel(key, panelIndex)
+                    },
+                    onPanelSwap = { from, to ->
+                        activity.panelReadingController.manuallySwapPanels(from, to)
+                    }
+                )
+            }
+        }
     }
 }
 

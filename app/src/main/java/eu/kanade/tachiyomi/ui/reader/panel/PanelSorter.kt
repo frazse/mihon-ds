@@ -20,14 +20,14 @@ object PanelSorter {
         if (valid.isEmpty()) return emptyList()
 
         val rtl = direction == PanelReadingDirection.RIGHT_TO_LEFT
-        logcat(LogPriority.INFO) { "Sorting ${valid.size} panels using algorithm: $algorithm (RTL: $rtl)" }
+        logcat(LogPriority.INFO) { "SORTER: Sorting ${valid.size} panels using algorithm: $algorithm (RTL: $rtl)" }
 
         return when (algorithm) {
             PanelSortingAlgorithm.ROW_BASED -> sortRowBased(valid, direction)
             PanelSortingAlgorithm.XY_CUT -> sortXyCut(valid, direction)
             PanelSortingAlgorithm.ADVANCED_RECURSIVE -> {
-                val pageWidth = valid.maxOf { it.bounds.right }.toInt()
-                val pageHeight = valid.maxOf { it.bounds.bottom }.toInt()
+                val pageWidth = panels.maxOf { it.bounds.right }.toInt()
+                val pageHeight = panels.maxOf { it.bounds.bottom }.toInt()
 
                 valid.forEach {
                     logcat(LogPriority.DEBUG) {

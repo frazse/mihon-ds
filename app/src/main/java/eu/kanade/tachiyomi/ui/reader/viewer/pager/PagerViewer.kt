@@ -22,6 +22,7 @@ import eu.kanade.tachiyomi.ui.reader.model.ViewerChapters
 import eu.kanade.tachiyomi.ui.reader.panel.PanelMoveResult
 import eu.kanade.tachiyomi.ui.reader.panel.PanelPageKey
 import eu.kanade.tachiyomi.ui.reader.panel.hasSameLogicalPage
+import eu.kanade.tachiyomi.ui.reader.panel.matchesPanelKey
 import eu.kanade.tachiyomi.ui.reader.panel.panelPageKey
 import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
 import eu.kanade.tachiyomi.ui.reader.viewer.ViewerNavigation.NavigationRegion
@@ -29,6 +30,7 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import tachiyomi.core.common.util.system.logcat
 import uy.kohesive.injekt.injectLazy
@@ -197,23 +199,52 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
         }
 
         scope.launch {
-            activity.panelReadingController.state.collect { state ->
+            combine(activity.panelReadingController.state, activity.isPanelCorrectionMode) { state, correctionMode ->
                 val key = state.key
                 val panel = state.activePanel
+
                 if (key == null || panel == null) {
                     lastFocusedPanel = null
                     clearPanelFocusOnVisiblePages()
-                    return@collect
-                }
+                } else {
+                    val focusKey = key to panel.id
+                    if (lastFocusedPanel != focusKey) {
+                        val page = currentReaderPages().firstOrNull { it.matchesPanelKey(key) }
+                        if (page != null) {
+                            lastFocusedPanel = focusKey
+                            pager.post {
+                                focusActivePanel(page)
+                            }
+                        }
+                    }
 
-                val focusKey = key to panel.id
-                if (lastFocusedPanel == focusKey) return@collect
-
-                val page = currentReaderPages().firstOrNull { it.matchesPanelKey(key) } ?: return@collect
-                lastFocusedPanel = focusKey
-                pager.post {
-                    focusActivePanel(page)
+                    // Always refresh overlays for correction mode or panel changes
+                    refreshPanelOverlays()
                 }
+            }.collect()
+        }
+    }
+
+    override fun refreshPanelOverlays() {
+        val state = activity.panelReadingController.state.value
+        val correctionMode = activity.isPanelCorrectionMode.value
+        val key = state.key ?: return
+        val activePanel = state.activePanel
+
+        currentReaderPages().forEach { page ->
+            if (page.matchesPanelKey(key)) {
+                getPageHolder(page)?.showPanelMap(
+                    panels = state.panels,
+                    activePanel = activePanel,
+                    showNumbers = true,
+                    isCorrectionMode = correctionMode,
+                    onPanelTap = { panelIndex ->
+                        activity.panelReadingController.selectPanel(key, panelIndex)
+                    },
+                    onPanelSwap = { from, to ->
+                        activity.panelReadingController.manuallySwapPanels(from, to)
+                    }
+                )
             }
         }
     }
@@ -302,9 +333,6 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
         return activeKey.takeIf { page.matchesPanelKey(it) } ?: page.panelPageKey()
     }
 
-    private fun ReaderPage.matchesPanelKey(key: PanelPageKey?): Boolean {
-        return panelPageKey().hasSameLogicalPage(key)
-    }
 
     private fun isCurrentVisiblePage(page: ReaderPage, key: PanelPageKey): Boolean {
         return currentReaderPages().any { it == page && it.matchesPanelKey(key) }

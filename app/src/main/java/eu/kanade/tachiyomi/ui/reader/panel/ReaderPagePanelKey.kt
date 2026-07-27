@@ -20,6 +20,12 @@ fun ReaderPage.panelPageKey(
     )
 }
 
+fun ReaderPage.matchesPanelKey(key: PanelPageKey?): Boolean {
+    key ?: return false
+    val currentKey = panelPageKey(key.renderVariant)
+    return currentKey.hasSameLogicalPage(key)
+}
+
 private fun Chapter?.safeUrl(): String {
     return this?.let { runCatching { it.url }.getOrNull() }.orEmpty()
 }
