@@ -136,6 +136,67 @@ class PanelSorterTest {
         assertEquals(listOf("outer", "inset"), result.map { it.id })
     }
 
+    @Test
+    fun `removes duplicates with IOU greater than 0-72`() {
+        val panels = listOf(
+            panel(id = "base", left = 0f, top = 0f, width = 100f, height = 100f, confidence = 0.95f),
+            // Offset by 15px: Intersection 85x100=8500, Union 10000+10000-8500=11500, IOU=0.739 (Should remove)
+            panel(id = "overlap-high", left = 15f, top = 0f, width = 100f, height = 100f, confidence = 0.90f),
+        )
+
+        val result = PanelSorter.sort(panels, PanelReadingDirection.LEFT_TO_RIGHT)
+
+        assertEquals(listOf("base"), result.map { it.id })
+    }
+
+    @Test
+    fun `keeps panels with IOU less than 0-72`() {
+        val panels = listOf(
+            panel(id = "base", left = 0f, top = 0f, width = 100f, height = 100f, confidence = 0.95f),
+            // Offset by 20px: Intersection 80x100=8000, Union 10000+10000-8000=12000, IOU=0.666 (Should keep)
+            panel(id = "overlap-low", left = 20f, top = 0f, width = 100f, height = 100f, confidence = 0.90f),
+        )
+
+        val result = PanelSorter.sort(panels, PanelReadingDirection.LEFT_TO_RIGHT)
+
+        assertEquals(listOf("base", "overlap-low"), result.map { it.id })
+    }
+
+    @Test
+    fun `orders nested inset panel after container`() {
+        val container = panel(id = "container", left = 20f, top = 20f, width = 400f, height = 400f)
+        val inset = panel(id = "inset", left = 50f, top = 50f, width = 100f, height = 100f)
+        val next = panel(id = "next", left = 450f, top = 20f, width = 100f, height = 100f)
+
+        // Using sort to trigger internal estimateOrder with ADVANCED_RECURSIVE
+        val result = PanelSorter.sort(listOf(inset, next, container), PanelReadingDirection.LEFT_TO_RIGHT, PanelSortingAlgorithm.ADVANCED_RECURSIVE)
+
+        // Should be: container -> inset -> next
+        assertEquals(listOf("container", "inset", "next"), result.map { it.id })
+    }
+
+    @Test
+    fun `orders multi-level nested panels correctly`() {
+        val a = panel(id = "A", left = 0f, top = 0f, width = 500f, height = 500f)
+        val b = panel(id = "B", left = 50f, top = 50f, width = 300f, height = 300f)
+        val c = panel(id = "C", left = 100f, top = 100f, width = 100f, height = 100f)
+
+        val result = PanelSorter.sort(listOf(c, a, b), PanelReadingDirection.LEFT_TO_RIGHT, PanelSortingAlgorithm.ADVANCED_RECURSIVE)
+
+        // Should resolve nested hierarchy: A (container) -> B (nested in A) -> C (nested in B)
+        assertEquals(listOf("A", "B", "C"), result.map { it.id })
+    }
+
+    @Test
+    fun `no containment relationship produces standard order`() {
+        val p1 = panel(id = "1", left = 200f, top = 20f)
+        val p2 = panel(id = "2", left = 20f, top = 20f)
+
+        val result = PanelSorter.sort(listOf(p1, p2), PanelReadingDirection.RIGHT_TO_LEFT, PanelSortingAlgorithm.ADVANCED_RECURSIVE)
+
+        assertEquals(listOf("1", "2"), result.map { it.id })
+    }
+
     private fun panel(
         id: String,
         left: Float,

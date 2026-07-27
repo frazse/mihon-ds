@@ -161,12 +161,12 @@ class MangaRestorer(
                 }
 
                 // Update to an existing chapter
-                var updatedChapter = chapter
-                    .copyFrom(dbChapter)
-                    .copy(
-                        id = dbChapter.id,
-                        bookmark = chapter.bookmark || dbChapter.bookmark,
-                    )
+                var updatedChapter = chapter.copy(
+                    id = dbChapter.id,
+                    read = chapter.read || dbChapter.read,
+                    bookmark = chapter.bookmark || dbChapter.bookmark,
+                    lastPageRead = max(chapter.lastPageRead, dbChapter.lastPageRead),
+                )
                 if (dbChapter.read && !updatedChapter.read) {
                     updatedChapter = updatedChapter.copy(
                         read = true,
@@ -220,15 +220,15 @@ class MangaRestorer(
                 chaptersQueries.update(
                     mangaId = null,
                     url = null,
-                    name = null,
-                    scanlator = null,
+                    name = chapter.name,
+                    scanlator = chapter.scanlator,
                     read = chapter.read,
                     bookmark = chapter.bookmark,
                     lastPageRead = chapter.lastPageRead,
-                    chapterNumber = null,
-                    sourceOrder = null,
-                    dateFetch = null,
-                    dateUpload = null,
+                    chapterNumber = chapter.chapterNumber,
+                    sourceOrder = chapter.sourceOrder,
+                    dateFetch = chapter.dateFetch,
+                    dateUpload = chapter.dateUpload,
                     chapterId = chapter.id,
                     version = chapter.version,
                     isSyncing = 1,

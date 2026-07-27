@@ -147,18 +147,27 @@ class LiteRtPanelDetector(
         if (closed) {
             return emptyList()
         }
-        val interpreter = interpreter ?: Interpreter(
-            loadModelBuffer(),
-            Interpreter.Options().apply {
-                setNumThreads(INTERPRETER_THREAD_COUNT)
-            },
-        ).also {
-            it.allocateTensors()
-            interpreter = it
-        }
+        val interpreter = interpreter ?: try {
+            val buffer = loadModelBuffer()
+            logcat(LogPriority.INFO) { "Loading TFLite model from $modelAssetPath (Size: ${buffer.capacity()} bytes)" }
+            Interpreter(
+                buffer,
+                Interpreter.Options().apply {
+                    setNumThreads(INTERPRETER_THREAD_COUNT)
+                },
+            )
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "CRITICAL: Failed to load TFLite model!" }
+            null
+        } ?: return emptyList()
+
         if (!modelContractValidated) {
             validateModelContract(interpreter)
             modelContractValidated = true
+            logcat(LogPriority.INFO) {
+                "Model validated. Input shape: ${interpreter.getInputTensor(0).shape().contentToString()}, " +
+                "Output shape: ${interpreter.getOutputTensor(0).shape().contentToString()}"
+            }
         }
         val outputTensor = interpreter.getOutputTensor(0)
 

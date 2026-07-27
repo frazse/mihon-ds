@@ -3,6 +3,8 @@ package eu.kanade.tachiyomi.ui.reader.panel
 import android.graphics.RectF
 import kotlin.math.max
 import kotlin.math.min
+import logcat.LogPriority
+import tachiyomi.core.common.util.system.logcat
 
 object YoloPanelPostProcessor {
     private const val PANEL_CLASS_ID = 0
@@ -11,9 +13,13 @@ object YoloPanelPostProcessor {
     fun process(
         detections: List<FloatArray>,
         transform: PanelModelTransform,
-        confidenceThreshold: Float = 0.25f,
-        nmsIouThreshold: Float = 0.35f,
+        confidenceThreshold: Float = 0.15f,
+        nmsIouThreshold: Float = 0.35f, // Restored to 0.35 to be more aggressive against merging
     ): List<ReaderPanel> {
+        logcat(LogPriority.DEBUG) { "Post-processing ${detections.size} raw detections" }
+        detections.forEachIndexed { index, det ->
+            logcat(LogPriority.DEBUG) { "raw[$index] conf=${det[4]} bounds=[${det[0]}, ${det[1]}, ${det[2]}, ${det[3]}]" }
+        }
         val candidates = detections
             .asSequence()
             .mapNotNull { detection ->
@@ -50,13 +56,19 @@ object YoloPanelPostProcessor {
             .sortedByDescending { it.confidence }
             .toList()
 
-        return candidates.fold(emptyList()) { kept, candidate ->
-            if (kept.any { iou(it.bounds, candidate.bounds) > nmsIouThreshold }) {
-                kept
-            } else {
-                kept + candidate
+        val boxes = candidates.fold(mutableListOf<ReaderPanel>()) { kept, candidate ->
+            if (kept.none { iou(it.bounds, candidate.bounds) > nmsIouThreshold }) {
+                kept.add(candidate)
             }
+            kept
         }
+
+        logcat(LogPriority.INFO) { "Post-processing ${detections.size} raw detections into ${boxes.size} filtered boxes" }
+        boxes.forEachIndexed { i, box ->
+            logcat(LogPriority.DEBUG) { "Box $i: [${box.bounds.left}, ${box.bounds.top}, ${box.bounds.right}, ${box.bounds.bottom}] Conf: ${box.confidence}" }
+        }
+
+        return boxes
     }
 
     private fun FloatArray.toModelInputCoordinates(inputSize: Int): FloatArray {

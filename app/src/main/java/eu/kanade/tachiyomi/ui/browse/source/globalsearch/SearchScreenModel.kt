@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import logcat.LogPriority
+import logcat.logcat
 import mihon.domain.manga.model.toDomainManga
 import tachiyomi.core.common.preference.toggle
 import tachiyomi.core.common.util.lang.launchIO
@@ -167,9 +169,11 @@ abstract class SearchScreenModel(
                     }
 
                     try {
+                        logcat(LogPriority.INFO) { "Searching source: ${source.name} (${source.id})" }
                         val page = withContext(coroutineDispatcher) {
                             source.getSearchManga(1, query, source.getFilterList())
                         }
+                        logcat(LogPriority.INFO) { "Search successful for: ${source.name}" }
 
                         val titles = page.mangas
                             .map { it.toDomainManga(source.id) }

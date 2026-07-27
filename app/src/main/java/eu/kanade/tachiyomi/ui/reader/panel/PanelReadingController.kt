@@ -9,6 +9,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
@@ -33,6 +35,19 @@ class PanelReadingController(
     private val mutableState = MutableStateFlow(PanelReadingState())
 
     val state: StateFlow<PanelReadingState> = mutableState.asStateFlow()
+
+    init {
+        readerPreferences.panelSortingAlgorithm().changes()
+            .onEach { reSortCurrentPage() }
+            .launchIn(scope)
+    }
+
+    private fun reSortCurrentPage() {
+        val current = mutableState.value
+        val key = current.key ?: return
+        val rawPanels = cachedRawPanels[key] ?: return
+        activatePage(key, rawPanels, preferredPanelIndex = current.panelIndex)
+    }
 
     fun setEnabledState(enabled: Boolean) {
         mutableState.value = if (enabled) {

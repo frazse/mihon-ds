@@ -6,4 +6,5 @@ import tachiyomi.i18n.MR
 enum class PanelSortingAlgorithm(val titleRes: StringResource) {
     ROW_BASED(MR.strings.panel_sort_row_based),
     XY_CUT(MR.strings.panel_sort_xy_cut),
+    ADVANCED_RECURSIVE(MR.strings.panel_sort_advanced),
 }
