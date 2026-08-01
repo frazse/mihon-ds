@@ -107,7 +107,6 @@ class SyncDataJob(private val context: Context, workerParams: WorkerParameters) 
             val request = OneTimeWorkRequestBuilder<SyncDataJob>()
                 .addTag(TAG_JOB)
                 .addTag(tag)
-                .setInitialDelay(if (manual) 0 else 30, TimeUnit.SECONDS)
                 .build()
             context.workManager.enqueueUniqueWork(tag, ExistingWorkPolicy.KEEP, request)
         }

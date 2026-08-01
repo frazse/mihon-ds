@@ -20,7 +20,7 @@ class PanelCorrectionStore(context: Context) {
         val hash = generateLayoutHash(panels)
         val value = correctedIndices.joinToString(",")
         prefs.edit().putString(hash, value).apply()
-        logcat(LogPriority.INFO) { "AI TRAINING: Pattern Saved! DNA=$hash. PERSISTENCE CHECK: Key exists in Prefs: ${prefs.contains(hash)}" }
+        logcat(LogPriority.INFO) { "Layout Memory: Pattern Saved! DNA=$hash" }
     }
 
     fun getCorrection(panels: List<ReaderPanel>): List<Int>? {
@@ -28,10 +28,9 @@ class PanelCorrectionStore(context: Context) {
         val value = prefs.getString(hash, null)
 
         if (value != null) {
-            logcat(LogPriority.INFO) { "AI TRAINING: Pattern MATCHED! DNA=$hash" }
+            logcat(LogPriority.INFO) { "Layout Memory: Pattern MATCHED! DNA=$hash" }
             return value.split(",").mapNotNull { it.toIntOrNull() }.takeIf { it.size == panels.size }
         } else {
-            logcat(LogPriority.INFO) { "AI TRAINING: Pattern MISSED. DNA=$hash" }
             return null
         }
     }
